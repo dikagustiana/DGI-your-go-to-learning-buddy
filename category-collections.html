@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Collections and Miscellaneous – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html" class="active">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Collections and Miscellaneous</h2>
+          <p>
+            Use this page to manage anthologies, collected works and
+            materials that don’t fit neatly into other categories. Uploaded
+            items will appear below.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <h3>Uploaded Items</h3>
+          <ul id="collections-files" class="uploaded-files">
+            <li>No books uploaded yet.</li>
+          </ul>
+          <form id="collections-form">
+            <label for="collections-book">Upload Book</label>
+            <input type="file" id="collections-book" name="book" multiple />
+            <label for="collections-folder">Upload Folder</label>
+            <input
+              type="file"
+              id="collections-folder"
+              name="folder"
+              webkitdirectory
+              directory
+              multiple
+            />
+          </form>
+          <div id="collections-preview" class="book-preview">
+            <p>No previews yet.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <script>
+      const collectionsList = document.getElementById('collections-files');
+      const collectionsPreview = document.getElementById('collections-preview');
+      function addCollectionsFiles(files) {
+        if (collectionsList.innerHTML.trim() === 'No books uploaded yet.') {
+          collectionsList.innerHTML = '';
+        }
+        if (collectionsPreview.innerHTML.trim() === '<p>No previews yet.</p>') {
+          collectionsPreview.innerHTML = '';
+        }
+        for (const file of files) {
+          const li = document.createElement('li');
+          li.textContent = file.webkitRelativePath || file.name;
+          collectionsList.appendChild(li);
+          if (file.type === 'application/pdf') {
+            const embed = document.createElement('embed');
+            embed.src = URL.createObjectURL(file) + '#page=1&zoom=100';
+            embed.type = 'application/pdf';
+            collectionsPreview.appendChild(embed);
+          }
+        }
+      }
+      document
+        .getElementById('collections-book')
+        .addEventListener('change', function (e) {
+          collectionsList.innerHTML = '';
+          collectionsPreview.innerHTML = '';
+          addCollectionsFiles(e.target.files);
+        });
+      document
+        .getElementById('collections-folder')
+        .addEventListener('change', function (e) {
+          addCollectionsFiles(e.target.files);
+        });
+    </script>
+  </body>
+</html>

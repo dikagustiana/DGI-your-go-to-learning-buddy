@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Economics and Political Economy – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html" class="active">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Economics and Political Economy</h2>
+          <p>
+            Use this page to manage your books related to economics and
+            political economy. Uploaded books and folders will appear below.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <h3>Uploaded Items</h3>
+          <ul id="economics-files" class="uploaded-files">
+            <li>No books uploaded yet.</li>
+          </ul>
+          <form id="economics-form">
+            <label for="economics-book">Upload Book</label>
+            <input type="file" id="economics-book" name="book" multiple />
+            <label for="economics-folder">Upload Folder</label>
+            <input
+              type="file"
+              id="economics-folder"
+              name="folder"
+              webkitdirectory
+              directory
+              multiple
+            />
+          </form>
+          <!-- Preview container for displaying first pages of uploaded PDFs -->
+          <div id="economics-preview" class="book-preview">
+            <p>No previews yet.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <script>
+      const econList = document.getElementById('economics-files');
+      const econPreview = document.getElementById('economics-preview');
+      // Helper to add files to the list and generate previews
+      function addEconFiles(files) {
+        // If the list still contains the placeholder text, clear it
+        if (econList.innerHTML.trim() === 'No books uploaded yet.') {
+          econList.innerHTML = '';
+        }
+        // Remove placeholder from preview on first addition
+        if (econPreview.innerHTML.trim() === '<p>No previews yet.</p>') {
+          econPreview.innerHTML = '';
+        }
+        for (const file of files) {
+          const li = document.createElement('li');
+          li.textContent = file.webkitRelativePath || file.name;
+          econList.appendChild(li);
+          // If the file is a PDF, embed the first page as a preview
+          if (file.type === 'application/pdf') {
+            const embed = document.createElement('embed');
+            embed.src = URL.createObjectURL(file) + '#page=1&zoom=100';
+            embed.type = 'application/pdf';
+            econPreview.appendChild(embed);
+          }
+        }
+      }
+      // When selecting a book, reset both list and preview and then add selected files
+      document
+        .getElementById('economics-book')
+        .addEventListener('change', function (e) {
+          econList.innerHTML = '';
+          econPreview.innerHTML = '';
+          addEconFiles(e.target.files);
+        });
+      // When selecting a folder, append files to existing list and preview
+      document
+        .getElementById('economics-folder')
+        .addEventListener('change', function (e) {
+          addEconFiles(e.target.files);
+        });
+    </script>
+  </body>
+</html>

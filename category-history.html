@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>History and Biographies – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html" class="active">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>History and Biographies</h2>
+          <p>
+            Manage biographical narratives and historical accounts here. Uploaded
+            items will appear below.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <h3>Uploaded Items</h3>
+          <ul id="history-files" class="uploaded-files">
+            <li>No books uploaded yet.</li>
+          </ul>
+          <form id="history-form">
+            <label for="history-book">Upload Book</label>
+            <input type="file" id="history-book" name="book" multiple />
+            <label for="history-folder">Upload Folder</label>
+            <input
+              type="file"
+              id="history-folder"
+              name="folder"
+              webkitdirectory
+              directory
+              multiple
+            />
+          </form>
+          <div id="history-preview" class="book-preview">
+            <p>No previews yet.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <script>
+      const historyList = document.getElementById('history-files');
+      const historyPreview = document.getElementById('history-preview');
+      function addHistoryFiles(files) {
+        if (historyList.innerHTML.trim() === 'No books uploaded yet.') {
+          historyList.innerHTML = '';
+        }
+        if (historyPreview.innerHTML.trim() === '<p>No previews yet.</p>') {
+          historyPreview.innerHTML = '';
+        }
+        for (const file of files) {
+          const li = document.createElement('li');
+          li.textContent = file.webkitRelativePath || file.name;
+          historyList.appendChild(li);
+          if (file.type === 'application/pdf') {
+            const embed = document.createElement('embed');
+            embed.src = URL.createObjectURL(file) + '#page=1&zoom=100';
+            embed.type = 'application/pdf';
+            historyPreview.appendChild(embed);
+          }
+        }
+      }
+      document
+        .getElementById('history-book')
+        .addEventListener('change', function (e) {
+          historyList.innerHTML = '';
+          historyPreview.innerHTML = '';
+          addHistoryFiles(e.target.files);
+        });
+      document
+        .getElementById('history-folder')
+        .addEventListener('change', function (e) {
+          addHistoryFiles(e.target.files);
+        });
+    </script>
+  </body>
+</html>

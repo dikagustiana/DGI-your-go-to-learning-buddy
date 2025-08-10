@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html" class="active">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- Hero section with introduction -->
+      <section class="hero">
+        <div class="container">
+          <h2>Welcome</h2>
+          <p>
+            This site collects your work and projects in finance. Explore each
+            section to see your insights and experience.
+          </p>
+        </div>
+      </section>
+      <!-- Landing process overview -->
+      <section class="portfolio-section">
+        <div class="container">
+          <h2>Process Overview</h2>
+          <p>
+            This diagram outlines the key processes in finance delivery and
+            management. Click each point to attach or open a document
+            detailing your work. Replace the “#” in each link with your
+            document URL.
+          </p>
+          <!-- Interactive flowchart rendered with JavaScript. Adjust the
+               `nodes` array in the script to add or remove items. Each
+               node has a label array and a link where your document can be
+               attached. -->
+          <div class="flowchart-wrapper"></div>
+          <script>
+            (function() {
+              // Define your nodes here. Each entry holds multiple lines and an optional link.
+              const nodes = [
+                { label: ["delivery +", "management"], link: "#" },
+                { label: ["client +", "change", "management"], link: "#" },
+                { label: ["team +", "capacity", "monitoring"], link: "#" },
+                { label: ["team +", "capacity", "forecasting"], link: "#" },
+                { label: ["risk +", "management"], link: "#" },
+                { label: ["performance +", "review +", "system"], link: "#" },
+              ];
+
+              const spacing = 160; // horizontal distance between nodes
+              const startX = 80; // starting x-coordinate
+              const topY = 80; // y-coordinate for top row
+              const bottomY = 250; // y-coordinate for bottom row
+              // Calculate coordinates for each node
+              const coords = nodes.map((_, i) => {
+                const x = startX + i * spacing;
+                const y = i % 2 === 0 ? bottomY : topY;
+                return { x, y };
+              });
+              // Build the curved path connecting nodes
+              // Build a smooth cubic-bezier path connecting nodes. The
+              // control points are chosen to create symmetrical arcs: the
+              // first control point stays level with the previous node and
+              // the second control point stays level with the current node.
+              let path = `M ${coords[0].x} ${coords[0].y}`;
+              for (let i = 1; i < coords.length; i++) {
+                const prev = coords[i - 1];
+                const curr = coords[i];
+                // Control points positioned at one-third and two-thirds of the
+                // horizontal spacing between nodes. This produces a smooth,
+                // wave-like curve similar to the provided example.
+                const cp1x = prev.x + spacing * 0.33;
+                const cp1y = prev.y;
+                const cp2x = prev.x + spacing * 0.66;
+                const cp2y = curr.y;
+                path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
+              }
+              // Create SVG and add path
+              const svgNS = "http://www.w3.org/2000/svg";
+              const svg = document.createElementNS(svgNS, "svg");
+              const totalWidth = startX * 2 + (nodes.length - 1) * spacing;
+              svg.setAttribute("viewBox", `0 0 ${totalWidth} 340`);
+              svg.setAttribute("class", "flowchart");
+              // Path element
+              const pathEl = document.createElementNS(svgNS, "path");
+              pathEl.setAttribute("d", path);
+              const primary = getComputedStyle(document.documentElement).getPropertyValue("--primary-color").trim();
+              pathEl.setAttribute("stroke", primary);
+              pathEl.setAttribute("stroke-width", "8");
+              pathEl.setAttribute("fill", "none");
+              pathEl.setAttribute("stroke-linecap", "round");
+              svg.appendChild(pathEl);
+              // Create nodes and labels
+              nodes.forEach((node, i) => {
+                const { x, y } = coords[i];
+                const link = document.createElementNS(svgNS, "a");
+                link.setAttributeNS("http://www.w3.org/1999/xlink", "href", node.link || "#");
+                link.setAttribute("target", "_blank");
+                // Circle
+                const circle = document.createElementNS(svgNS, "circle");
+                circle.setAttribute("cx", x);
+                circle.setAttribute("cy", y);
+                circle.setAttribute("r", "14");
+                circle.setAttribute("fill", primary);
+                link.appendChild(circle);
+                // Text positioning: place labels to the left of bottom nodes and to the right of top nodes
+                const text = document.createElementNS(svgNS, "text");
+                const isBottom = y === bottomY;
+                // Position labels: bottom nodes appear below, top nodes above
+                const textX = isBottom ? x - 25 : x + 20;
+                const textY = isBottom ? y + 35 : y - 25;
+                text.setAttribute("x", textX);
+                text.setAttribute("y", textY);
+                text.setAttribute("fill", primary);
+                text.setAttribute("font-size", "14");
+                text.setAttribute("font-weight", "bold");
+                node.label.forEach((line, idx) => {
+                  const tspan = document.createElementNS(svgNS, "tspan");
+                  tspan.setAttribute("x", textX);
+                  tspan.setAttribute("dy", idx === 0 ? "0" : "15");
+                  tspan.textContent = line;
+                  text.appendChild(tspan);
+                });
+                link.appendChild(text);
+                svg.appendChild(link);
+              });
+              document.querySelector(".flowchart-wrapper").appendChild(svg);
+            })();
+          </script>
+        </div>
+      </section>
+      <!-- Summary of sections with links to full pages -->
+      <section class="summary-section">
+        <div class="container">
+          <div class="summary-grid">
+            <div class="summary-card">
+              <h3>Accounting 101</h3>
+              <p>
+                Learn the basics of accounting. Explore financial statement line
+                items, statutory reporting and consolidation reporting.
+              </p>
+              <a class="button" href="accounting.html">Learn more</a>
+            </div>
+            <div class="summary-card">
+              <h3>Finance 101</h3>
+              <p>
+                Delve into finance fundamentals. Explore financial analytics,
+                modeling, budgeting and CFA preparation.
+              </p>
+              <a class="button" href="finance.html">Learn more</a>
+            </div>
+            <div class="summary-card">
+              <h3>Books and Supplementary</h3>
+              <p>
+                Curate books, finance and accounting books, and other
+                supplementary materials. Provide summaries and download
+                links to support your learning.
+              </p>
+              <a class="button" href="academia.html">Learn more</a>
+            </div>
+            <div class="summary-card">
+              <h3>Transition</h3>
+              <p>
+                Reflect on where you are now, analyse the gap between ambition
+                and reality, and outline the journey to your desired future.
+              </p>
+              <a class="button" href="transition.html">Learn more</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Include common script for modal and explanation functions -->
+    <script src="script.js"></script>
+  </body>
+</html>

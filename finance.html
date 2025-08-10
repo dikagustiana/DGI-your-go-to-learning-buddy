@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finance 101 – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html" class="active">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <!-- Page hero introducing Finance 101 -->
+      <section class="page-hero">
+        <div class="container">
+          <h2>Finance 101</h2>
+          <p>
+            Explore core concepts of finance. This section covers analytics,
+            planning & forecasting and budgeting. Click each card to open
+            the corresponding section where you can drill down further.
+          </p>
+        </div>
+      </section>
+      <!-- Detailed topics for Finance 101 -->
+      <section class="portfolio-section">
+        <div class="container">
+          <p>
+            Use the cards below to organise your materials. Each card
+            represents a key area of finance. You can add explanations and
+            attach images using the pop‑ups on the deeper pages.
+          </p>
+          <div class="portfolio-items">
+            <div class="portfolio-item">
+              <h3>Financial Analytics</h3>
+              <p>
+                Drill down into variance, profitability, liquidity,
+                efficiency and financial structure analyses. Each sub‑section
+                opens a dedicated page where you can add commentary and
+                visuals.
+              </p>
+              <a class="button" href="analytics.html">Explore Analytics</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>Financial Planning &amp; Forecasting</h3>
+              <p>
+                Build a comprehensive plan and forecast using a step‑by‑step
+                flowchart covering sales assumptions through to analysing
+                projected statements.
+              </p>
+              <a class="button" href="planning.html">Start Planning</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>Budgeting</h3>
+              <p>
+                Learn about budgeting versus planning, bottom‑up vs top‑down
+                approaches and the assumptions that drive your budget.
+              </p>
+              <a class="button" href="budgeting.html">See Budgeting</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>CFA Prep</h3>
+              <p>
+                Outline your strategies for preparing for the CFA exams.
+                Include study schedules, resources and tips you have found
+                effective.
+              </p>
+              <a class="button" href="#" data-item="cfa-prep">Add Notes</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Modal for CFA prep notes -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <h4>Edit explanation</h4>
+        <textarea placeholder="Write your explanation here..."></textarea>
+        <input type="file" accept="image/*" />
+        <img class="image-preview" alt="Uploaded preview" />
+        <div class="modal-actions">
+          <button type="button" onclick="saveModal()">Save</button>
+          <button type="button" onclick="expandModal()">Expand</button>
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

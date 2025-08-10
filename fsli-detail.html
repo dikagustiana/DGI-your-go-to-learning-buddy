@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Line Item Explanation – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html" class="active">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2 id="item-heading">Line Item</h2>
+          <p>
+            Use this page to author a comprehensive explanation for the selected
+            line item. The explanation you enter here will be saved in your
+            browser (localStorage) and will appear whenever you open this item
+            from the list.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <textarea id="item-text" placeholder="Write your explanation..."></textarea>
+          <div style="margin: 0.5rem 0">
+            <label for="item-file">Upload image</label>
+            <input id="item-file" type="file" accept="image/*" />
+          </div>
+          <img id="item-image" style="display:none; max-width:100%; height:auto; margin-bottom:1rem;" alt="Preview" />
+          <button id="save-explanation" class="button">Save Explanation</button>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Include common script to load and save explanation -->
+    <script src="script.js"></script>
+  </body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Budgeting – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html" class="active">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Budgeting</h2>
+          <p>
+            Explore budgeting concepts and strategies. Each topic below
+            opens a pop‑up where you can capture your insights and attach
+            supporting documents.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <div class="portfolio-items">
+            <div class="portfolio-item">
+              <h3>Budgeting vs Financial Planning</h3>
+              <p>Discuss the differences between budgeting and planning.</p>
+              <a href="#" data-item="budget-vs-planning" class="button">Edit Explanation</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>Bottom Up vs Top Down Budgeting</h3>
+              <p>Compare approaches to building a budget from the ground up or top down.</p>
+              <a href="#" data-item="bottom-up-top-down" class="button">Edit Explanation</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>Budgeting Assumptions</h3>
+              <p>Capture the assumptions underpinning your budget projections.</p>
+              <a href="#" data-item="budgeting-assumptions" class="button">Edit Explanation</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Modal for budgeting explanations -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <h4>Edit explanation</h4>
+        <textarea placeholder="Write your explanation here..."></textarea>
+        <input type="file" accept="image/*" />
+        <img class="image-preview" alt="Uploaded preview" />
+        <div class="modal-actions">
+          <button type="button" onclick="saveModal()">Save</button>
+          <button type="button" onclick="expandModal()">Expand</button>
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

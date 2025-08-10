@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Financial Planning &amp; Forecasting – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html" class="active">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Financial Planning &amp; Forecasting</h2>
+          <p>
+            This flowchart guides you through the financial planning and forecasting
+            process. Each node represents a step; click a node to add your own
+            explanation and upload a supporting image.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <div class="flowchart-wrapper"></div>
+          <script>
+            (function() {
+              // Steps for the planning and forecasting flowchart
+              const steps = [
+                { key: 'sales-assumptions', label: ['Sales', 'Assumptions'] },
+                { key: 'revenue-projection', label: ['Revenue', 'Projection'] },
+                { key: 'cogs-gross-profit', label: ['COGS &', 'Gross Profit'] },
+                { key: 'headcount-planning', label: ['Headcount', 'Planning'] },
+                { key: 'salaries-planning', label: ['Salaries', 'Planning'] },
+                { key: 'overhead-costs', label: ['Overhead Costs', 'Planning'] },
+                { key: 'working-capital', label: ['Net Working', 'Capital'] },
+                { key: 'capex-projection', label: ['Capex', 'Projection'] },
+                { key: 'debt-interest-dividend', label: ['Debt &', 'Dividends'] },
+                { key: 'three-statement', label: ['3 Statement', 'Model'] },
+                { key: 'analysis-projections', label: ['Analysis of', 'Projections'] },
+              ];
+              const spacing = 170;
+              const startX = 80;
+              const topY = 80;
+              const bottomY = 250;
+              const coords = steps.map((_, i) => {
+                const x = startX + i * spacing;
+                const y = i % 2 === 0 ? bottomY : topY;
+                return { x, y };
+              });
+              let path = `M ${coords[0].x} ${coords[0].y}`;
+              for (let i = 1; i < coords.length; i++) {
+                const prev = coords[i - 1];
+                const curr = coords[i];
+                const cp1x = prev.x + spacing * 0.33;
+                const cp1y = prev.y;
+                const cp2x = prev.x + spacing * 0.66;
+                const cp2y = curr.y;
+                path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
+              }
+              const svgNS = 'http://www.w3.org/2000/svg';
+              const svg = document.createElementNS(svgNS, 'svg');
+              const totalWidth = startX * 2 + (steps.length - 1) * spacing;
+              svg.setAttribute('viewBox', `0 0 ${totalWidth} 340`);
+              svg.setAttribute('class', 'flowchart');
+              const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim();
+              const pathEl = document.createElementNS(svgNS, 'path');
+              pathEl.setAttribute('d', path);
+              pathEl.setAttribute('stroke', primary);
+              pathEl.setAttribute('stroke-width', '8');
+              pathEl.setAttribute('fill', 'none');
+              pathEl.setAttribute('stroke-linecap', 'round');
+              svg.appendChild(pathEl);
+              steps.forEach((step, i) => {
+                const { x, y } = coords[i];
+                const link = document.createElementNS(svgNS, 'a');
+                link.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '#');
+                link.setAttribute('data-item', step.key);
+                // Circle
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.setAttribute('cx', x);
+                circle.setAttribute('cy', y);
+                circle.setAttribute('r', '14');
+                circle.setAttribute('fill', primary);
+                link.appendChild(circle);
+                // Text
+                const isBottom = y === bottomY;
+                const textX = isBottom ? x - 35 : x + 20;
+                const textY = isBottom ? y + 35 : y - 25;
+                const text = document.createElementNS(svgNS, 'text');
+                text.setAttribute('x', textX);
+                text.setAttribute('y', textY);
+                text.setAttribute('fill', primary);
+                text.setAttribute('font-size', '14');
+                text.setAttribute('font-weight', 'bold');
+                step.label.forEach((line, idx) => {
+                  const tspan = document.createElementNS(svgNS, 'tspan');
+                  tspan.setAttribute('x', textX);
+                  tspan.setAttribute('dy', idx === 0 ? '0' : '15');
+                  tspan.textContent = line;
+                  text.appendChild(tspan);
+                });
+                link.appendChild(text);
+                svg.appendChild(link);
+              });
+              document.querySelector('.flowchart-wrapper').appendChild(svg);
+            })();
+          </script>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Modal for planning explanations -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <h4>Edit explanation</h4>
+        <textarea placeholder="Write your explanation here..."></textarea>
+        <input type="file" accept="image/*" />
+        <img class="image-preview" alt="Uploaded preview" />
+        <div class="modal-actions">
+          <button type="button" onclick="saveModal()">Save</button>
+          <button type="button" onclick="expandModal()">Expand</button>
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

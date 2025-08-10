@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Consolidated Reporting – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html" class="active">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html" class="active">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Consolidated Reporting</h2>
+          <p>
+            This section covers the preparation of consolidated financial statements.
+            Explore transaction types, consolidation workflows and segment
+            disclosures. Click each item to open a pop‑up where you can write
+            explanations and attach supporting materials.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <!-- Merger and acquisition transaction type -->
+          <div class="fsli-section">
+            <h3>Merger and Acquisition Transaction Type</h3>
+            <div class="fsli-table">
+              <div class="fsli-column">
+                <h4>Under Common Control</h4>
+                <ul class="fsli-list">
+                  <li><a href="#" data-item="ma-common-shares">Shares transactions</a></li>
+                  <li><a href="#" data-item="ma-common-assets">Assets transfer transactions</a></li>
+                  <li><a href="#" data-item="ma-common-business">Business transfer transactions</a></li>
+                </ul>
+              </div>
+              <div class="fsli-column">
+                <h4>With Third Parties</h4>
+                <ul class="fsli-list">
+                  <li><a href="#" data-item="ma-third-parties">Transactions with third parties</a></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <!-- Consolidation process -->
+          <div class="fsli-section">
+            <h3>Consolidation Process</h3>
+            <p>Review the flow of consolidation entries from subsidiaries to the consolidated financial statements. The diagram illustrates how subsidiary results are combined and adjusted. Below the image, each step is listed; click on a step to write or view your notes.</p>
+            <div style="overflow-x:auto; margin-bottom:1rem;">
+              <img src="Consolidation Process.jpg" alt="Consolidation process flowchart" style="width:100%; max-width:800px;" />
+            </div>
+            <ul class="fsli-list" style="max-width:800px; margin: 0 auto 1rem;">
+              <li><a href="#" data-item="consol-investment-equity"><span class="id">Investasi dan ekuitas</span><span class="en">Investment and equity</span></a></li>
+              <li><a href="#" data-item="consol-intercompany-balancesheet"><span class="id">Neraca antar perusahaan</span><span class="en">Intercompany balancesheet</span></a></li>
+              <li><a href="#" data-item="consol-intercompany-pl"><span class="id">Laporan laba rugi antar perusahaan</span><span class="en">Intercompany PL</span></a></li>
+              <li><a href="#" data-item="consol-final-statement"><span class="id">Laporan keuangan konsolidasi</span><span class="en">Consolidated financial statement</span></a></li>
+            </ul>
+            <a href="#" data-item="consolidation-process" class="button">Edit overall explanation</a>
+          </div>
+          <!-- Segment information -->
+          <div class="fsli-section">
+            <h3>Segment Information</h3>
+            <p>Explain how you report segment information in consolidated statements.</p>
+            <a href="#" data-item="segment-information" class="button">Edit Explanation</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Modal for consolidated reporting explanations -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <h4>Edit explanation</h4>
+        <textarea placeholder="Write your explanation here..."></textarea>
+        <input type="file" accept="image/*" />
+        <img class="image-preview" alt="Uploaded preview" />
+        <div class="modal-actions">
+          <button type="button" onclick="saveModal()">Save</button>
+          <button type="button" onclick="expandModal()">Expand</button>
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>

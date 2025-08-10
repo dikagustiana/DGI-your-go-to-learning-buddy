@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Statutory Reporting for Limited Company – Your go-to learning buddy</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container">
+        <h1>Your go-to learning buddy</h1>
+        <nav>
+          <ul class="nav-list">
+            <li><a href="index.html">Home</a></li>
+            <li>
+              <a href="accounting.html" class="active">Accounting 101</a>
+              <ul class="submenu">
+                <li><a href="fsli.html">Financial statement line items 101</a></li>
+                <li><a href="statutory.html" class="active">Statutory reporting for limited company</a></li>
+                <li><a href="consolidated.html">Consolidated reporting</a></li>
+              </ul>
+            </li>
+            <li><a href="finance.html">Finance 101</a></li>
+            <li><a href="transition.html">Transition</a></li>
+            <li><a href="academia.html">Books and Supplementary</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="page-hero">
+        <div class="container">
+          <h2>Statutory Reporting for Limited Company</h2>
+          <p>
+            Use this page to outline statutory reporting requirements for a
+            limited company. Each item can be clicked to open a pop‑up where
+            you can write a detailed explanation and attach supporting
+            documentation or images.
+          </p>
+        </div>
+      </section>
+      <section class="portfolio-section">
+        <div class="container">
+          <div class="portfolio-items">
+            <div class="portfolio-item">
+              <h3>Corporate Income Tax</h3>
+              <p>
+                Guidance on preparing and filing corporate income tax returns.
+              </p>
+              <a href="#" data-item="corporate-income-tax" class="button">Edit Explanation</a>
+            </div>
+            <div class="portfolio-item">
+              <h3>Building</h3>
+              <p>
+                Requirements for statutory reporting related to property and
+                buildings owned by the company.
+              </p>
+              <a href="#" data-item="building" class="button">Edit Explanation</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="container">
+        <p>© 2025 Dika. All rights reserved.</p>
+      </div>
+    </footer>
+    <!-- Modal for statutory explanations -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <h4>Edit explanation</h4>
+        <textarea placeholder="Write your explanation here..."></textarea>
+        <input type="file" accept="image/*" />
+        <img class="image-preview" alt="Uploaded preview" />
+        <div class="modal-actions">
+          <button type="button" onclick="saveModal()">Save</button>
+          <button type="button" onclick="expandModal()">Expand</button>
+          <button type="button" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+    <script src="script.js"></script>
+  </body>
+</html>
