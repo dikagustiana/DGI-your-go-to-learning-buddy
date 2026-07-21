@@ -147,3 +147,5 @@ Store tidak kena SmartScreen sama sekali, update otomatis, dan
 pengalaman installnya paling sederhana untuk pengguna awam. Jalur ini
 lebih panjang (sertifikasi Store, kebijakan konten) — scaffolding MSIX
 dan checklist submission dibuat terpisah bila diperlukan.
+
+> Artifact installer terbaru: tab **Actions** di GitHub → run "Build Windows installer" paling atas yang hijau → unduh **PDF-ke-Excel-Setup** di bagian Artifacts.
