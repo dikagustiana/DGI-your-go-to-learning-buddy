@@ -9,8 +9,9 @@ app/
 ├── pipeline/
 │   ├── models.py          OCRToken / Cell / PageResult (+ JSON round-trip)
 │   ├── pdf_loader.py      PyMuPDF: scanned-vs-native detection, 300 DPI raster
-│   ├── orientation.py     per-page rotation detection (OSD → OCR heuristic)
+│   ├── orientation.py     per-page rotation detection (OSD → native → heuristic)
 │   ├── table_builder.py   tokens + bboxes → row/column grid
+│   ├── html_table.py      PP-StructureV3 pred_html → text grid (spans resolved)
 │   ├── runner.py          per-page + whole-PDF orchestration (Qt-free)
 │   └── engines/
 │       ├── base.py        OCREngine interface + EngineUnavailableError
@@ -120,9 +121,38 @@ class OCREngine:
 `runner.process_page` prefers `ocr_table` when the engine supports it
 (PP-StructureV3) and falls back to `ocr_tokens` + `table_builder`
 (RapidOCR). Engines whose packages are missing report
-`is_available() == False` and the UI greys them out with the hint —
-nothing crashes on import. `use_cls=False` exists specifically for the
-orientation detector's flip stage.
+`is_available() == False` (via `find_spec`, never a real import — the
+paddle import chain takes seconds and probes the network) and the UI
+greys them out with the hint — nothing crashes on import. `use_cls=False`
+exists specifically for the orientation detector's flip stage;
+`detect_orientation` lets an engine answer the whole question natively.
+
+### PP-StructureV3 engine (`engines/paddle_engine.py`)
+
+Optional, `pip install paddlepaddle paddleocr "paddlex[ocr]"`. Three
+class-level singleton models (loading takes seconds):
+
+* **PPStructureV3** pipeline for `ocr_table`: returns real HTML tables
+  (`table_res_list[].pred_html`); `html_table.py` resolves
+  colspan/rowspan into the rectangular grid (merged cells put text in
+  the top-left slot, None in shadowed slots). Multiple tables on a page
+  stack with a blank separator row. Pages with no table region fall
+  back to the geometric `table_builder` over the pipeline's own OCR
+  tokens. Doc-orientation/unwarping submodules are disabled — the
+  pipeline pre-rotates.
+* **PaddleOCR** (PP-OCRv5) for `ocr_tokens` — used by the fallback path
+  and available to the orientation heuristic.
+* **PP-LCNet_x1_0_doc_ori** for `detect_orientation`: the classifier
+  label is the page's current clockwise rotation (verified
+  empirically), so the correction is `(360 − label) % 360`; confidence
+  < 0.6 falls through to the generic heuristic.
+
+Cell confidence: the structure model does not score cells, so each cell
+is matched back to the overall OCR tokens — exact text match, then
+space-insensitive, then substring containment (tokens ≥ 3 chars) taking
+the **minimum** matched score; unmatched cells get a conservative 0.75
+(below the 0.80 review threshold, i.e. flagged amber by default).
+PaddleX expects BGR arrays; channels are reversed at every boundary.
 
 ### Threading model
 

@@ -7,6 +7,9 @@ page is checked before OCR.
 Strategy, in order:
   1. Tesseract OSD (--psm 0) via pytesseract, if a tesseract binary is
      installed on the machine. Fast and accurate when available.
+  1b. The engine's own page-orientation classifier, if it has one
+     (OCREngine.detect_orientation — PP-StructureV3 ships a dedicated
+     PP-LCNet doc_ori model). Falls through on low confidence.
   2. Fallback heuristic (always available), two stages on a downscaled
      copy of the page. A naive "score OCR text volume at each rotation"
      does NOT work with modern engines: RapidOCR reads vertical lines
@@ -96,6 +99,13 @@ def detect_rotation(image: np.ndarray, engine: OCREngine,
         return osd
 
     probe = _downscale(image, probe_max_side)
+
+    try:
+        native = engine.detect_orientation(probe)
+    except Exception:
+        native = None
+    if native is not None:
+        return native
 
     # Stage a: axis. Are the text lines horizontal or vertical?
     try:

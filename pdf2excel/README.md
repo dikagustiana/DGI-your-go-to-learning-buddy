@@ -5,7 +5,7 @@ papers: rekening koran, faktur, debit/credit notes, RBP listings — into
 clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
 calls anywhere in the OCR/extraction path. All models run on-device.
 
-## Status: milestone 4 (sessions + export options) ✅
+## Status: milestone 5 (PP-StructureV3 engine) ✅
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -13,7 +13,7 @@ calls anywhere in the OCR/extraction path. All models run on-device.
 | 2 | PySide6 shell: open file, batch run in worker thread, page list | **done** |
 | 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | **done** |
 | 4 | Export options + resumable session persistence | **done** |
-| 5 | PaddleOCR PP-StructureV3 engine (optional) | pending (interface wired) |
+| 5 | PaddleOCR PP-StructureV3 engine (optional) | **done** |
 | 6 | PyInstaller packaging | pending |
 
 ## Setup
@@ -35,10 +35,19 @@ Optional extras:
   `tesseract` binary and `pip install pytesseract`. Without it the app
   falls back to a built-in OCR-probe heuristic (slower per page, no
   extra dependencies).
-* **PaddleOCR PP-StructureV3** (milestone 5, native table structure):
-  `pip install paddleocr paddlepaddle` — large download, models fetched on
-  first run. Installed via the wheel, **not** by cloning the PaddleOCR
-  repo (the `ppstructure/` directory there is the deprecated V2).
+* **PaddleOCR PP-StructureV3** (native table structure recognition):
+
+  ```bash
+  pip install paddlepaddle paddleocr "paddlex[ocr]"
+  ```
+
+  Large download (~2 GB installed; models ~500 MB more, fetched to
+  `~/.paddlex/official_models` on first run — after that it runs fully
+  offline). The `paddlex[ocr]` extras are required; plain `paddleocr`
+  alone cannot construct the PP-StructureV3 pipeline. Installed via
+  wheels, **not** by cloning the PaddleOCR repo (the `ppstructure/`
+  directory there is the deprecated V2). Tested versions are noted in
+  `requirements.txt`.
 
 ## Usage
 
@@ -121,6 +130,20 @@ GUI, resume, review, and export — no second OCR run.
 python samples/make_sample.py sample.pdf   # 2 image-only pages, page 2 rotated 90°
 python -m app convert sample.pdf -o sample.xlsx
 ```
+
+### Choosing an engine
+
+| | `rapidocr` (default) | `paddle-ppstructure` |
+|---|---|---|
+| Install | bundled, tiny | ~2.5 GB extra, opt-in |
+| Speed (CPU) | ~5–25 s/page | ~30–60 s/page after warm-up |
+| Table structure | reconstructed geometrically from token boxes | recognized natively (real merged-cell handling) |
+| Orientation | OCR-probe heuristic | dedicated page classifier (PP-LCNet doc_ori) |
+| Best for | long batches, quick passes | dense/complex tables, merged cells |
+
+Both run 100% offline once installed and are selectable per run in the
+toolbar or with `--engine`; results land in the same session format, so
+you can re-run individual pages with the other engine from the QA view.
 
 ## What the output looks like
 

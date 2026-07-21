@@ -12,9 +12,13 @@ PySide6==6.9.1
 # Optional: Tesseract OSD orientation (needs a system tesseract binary)
 # pytesseract==0.3.13
 
-# Optional: PP-StructureV3 engine (milestone 5) — LARGE download.
-# paddleocr>=3.0
-# paddlepaddle>=3.0
+# Optional: PP-StructureV3 engine — LARGE download (~2 GB installed;
+# models ~500 MB more, fetched to ~/.paddlex on first run).
+# Note: the paddlex[ocr] extras are required — plain paddleocr is not
+# enough for the PP-StructureV3 pipeline. Tested with:
+# paddlepaddle==3.2.1
+# paddleocr==3.3.2
+# paddlex[ocr]==3.3.13
 
 # Dev
 pytest==9.1.1

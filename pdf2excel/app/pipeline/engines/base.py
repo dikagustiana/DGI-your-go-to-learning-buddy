@@ -50,3 +50,13 @@ class OCREngine(ABC):
     def ocr_table(self, image: np.ndarray) -> Optional[list[list[Optional[Cell]]]]:
         """Return a cell grid directly, or None if unsupported."""
         return None
+
+    def detect_orientation(self, image: np.ndarray) -> Optional[int]:
+        """Native page-orientation detection, if the engine has one.
+
+        Returns the clockwise correction to apply (0/90/180/270), or
+        None to fall back to the generic OCR-probe heuristic in
+        app.pipeline.orientation. Engines with a dedicated page
+        classifier (PP-StructureV3's doc_ori model) override this.
+        """
+        return None
