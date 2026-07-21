@@ -54,8 +54,21 @@ Optional extras:
 ### GUI
 
 ```bash
-python -m app
+python -m app              # simple three-step window (default)
+python -m app --advanced   # full expert window
 ```
+
+The **default window** is the simplified flow for non-technical
+(elderly) end users: plain Indonesian, no jargon, three big
+high-contrast buttons (open PDF → convert → open Excel/folder),
+auto-save to Documents with no save dialog, plain-language errors with
+technical detail tucked behind "Show details", optional review via
+"Periksa hasil (opsional)", and technical settings behind a small
+"Pengaturan lanjutan" link. Cancel/resume and per-page session
+persistence work the same as in the expert window. End-user guide:
+[CARA-PAKAI.md](CARA-PAKAI.md).
+
+The **expert window** (`--advanced`) keeps the full workflow below:
 
 Open PDF… → Run OCR → watch pages fill in live (each list entry shows
 the reconstructed grid size and any auto-applied rotation) → review

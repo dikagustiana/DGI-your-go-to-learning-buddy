@@ -1,9 +1,14 @@
 """Entry point.
 
-    python -m app                                  # launch the GUI
+    python -m app                                  # simple GUI (default)
+    python -m app --advanced                       # full expert GUI
     python -m app convert input.pdf -o out.xlsx    # headless OCR + export
     python -m app export input.pdf -o out.xlsx     # export from the session
     python -m app inspect input.pdf
+
+The default window is the simplified Indonesian three-step flow for
+non-technical users; ``--advanced`` opens the original expert window
+(page list, engine/DPI toolbar, full review workflow).
 
 ``convert`` also writes the session file (input.pdf.p2x) page by page,
 so a headless overnight OCR run can be reviewed in the GUI afterwards —
@@ -171,10 +176,17 @@ def main(argv: list[str] | None = None) -> int:
                        help="export only pages marked reviewed")
     p_exp.set_defaults(func=cmd_export)
 
+    parser.add_argument("--advanced", action="store_true",
+                        help="open the full expert window instead of the "
+                             "simplified three-step GUI")
+
     args = parser.parse_args(argv)
     if not args.command:
         try:
-            from app.gui.main_window import main as gui_main
+            if args.advanced:
+                from app.gui.main_window import main as gui_main
+            else:
+                from app.gui.simple_window import main as gui_main
         except ImportError as exc:
             print(f"GUI unavailable ({exc}).\n"
                   f"Install the GUI dependency with: pip install PySide6\n",

@@ -60,33 +60,34 @@ class ReviewView(QWidget):
         self.rotation_combo = QComboBox()
         self.rotation_combo.addItems(["0", "90", "180", "270"])
         self.rotation_combo.setToolTip(
-            "Manual rotation override for this page (degrees clockwise). "
-            "The image updates immediately; re-run OCR to update the table.")
+            "Memutar tampilan halaman ini (derajat, searah jarum jam). "
+            "Gambar langsung berubah; tekan “Baca ulang halaman ini” "
+            "untuk memperbarui tabelnya.")
         self.rotation_combo.currentTextChanged.connect(self._on_rotation_changed)
 
-        self.reocr_btn = QPushButton("Re-run OCR at this rotation")
+        self.reocr_btn = QPushButton("Baca ulang halaman ini")
         self.reocr_btn.clicked.connect(self._on_reocr_clicked)
 
         self.label_combo = QComboBox()
         self.label_combo.setEditable(True)
         self.label_combo.setMinimumWidth(180)
         self.label_combo.setToolTip(
-            "Document type of this page (e.g. rekening koran, faktur, "
-            "nota debet). Used to group pages in merged exports.")
+            "Jenis dokumen halaman ini (mis. rekening koran, faktur, "
+            "nota debet). Dipakai untuk mengelompokkan halaman saat "
+            "diekspor ke Excel.")
         self.label_combo.currentTextChanged.connect(self._on_label_changed)
 
-        self.reviewed_check = QCheckBox("Reviewed")
+        self.reviewed_check = QCheckBox("Sudah diperiksa")
         self.reviewed_check.setToolTip(
-            "Tick after checking the table against the page image. "
-            "Export warns while pages remain unreviewed.")
+            "Centang setelah tabel dicocokkan dengan gambar halamannya.")
         self.reviewed_check.toggled.connect(self._on_reviewed_toggled)
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Rotation:"))
+        controls.addWidget(QLabel("Putar halaman:"))
         controls.addWidget(self.rotation_combo)
         controls.addWidget(self.reocr_btn)
         controls.addSpacing(24)
-        controls.addWidget(QLabel("Document type:"))
+        controls.addWidget(QLabel("Jenis dokumen:"))
         controls.addWidget(self.label_combo)
         controls.addStretch(1)
         controls.addWidget(self.reviewed_check)
@@ -98,7 +99,7 @@ class ReviewView(QWidget):
         self.stale_banner.setVisible(False)
 
         # Image side
-        self.image_label = QLabel("No page selected.")
+        self.image_label = QLabel("Belum ada halaman dipilih.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_scroll = QScrollArea()
         self.image_scroll.setWidget(self.image_label)
@@ -176,7 +177,7 @@ class ReviewView(QWidget):
     def _render_image(self) -> None:
         if not self._pdf_path or self._page_number is None:
             self.image_label.clear()
-            self.image_label.setText("No page selected.")
+            self.image_label.setText("Belum ada halaman dipilih.")
             return
         try:
             image = pdf_loader.rasterize_page(
@@ -190,16 +191,16 @@ class ReviewView(QWidget):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
         except Exception as exc:
-            self.image_label.setText(f"Preview failed: {exc}")
+            self.image_label.setText(f"Gambar tidak bisa ditampilkan: {exc}")
 
     # ----------------------------------------------------------- table
 
     def _style_item(self, item: QTableWidgetItem, cell: Cell) -> None:
-        tip = f"confidence {cell.confidence:.2f}"
+        tip = f"tingkat keyakinan {cell.confidence:.2f}"
         if cell.value is not None:
-            tip += f" — parsed: {cell.value}"
+            tip += f" — terbaca sebagai angka: {cell.value}"
         if cell.edited:
-            tip += " — edited by reviewer"
+            tip += " — sudah dikoreksi manusia"
             item.setBackground(EDITED_COLOR)
         elif cell.confidence < self._threshold:
             item.setBackground(LOW_CONF_COLOR)
@@ -272,9 +273,9 @@ class ReviewView(QWidget):
         if self._result and not self._result.error:
             stale = self.current_rotation() != self._result.rotation_applied % 360
             self.stale_banner.setText(
-                f"⚠ The table below was extracted at "
-                f"{self._result.rotation_applied}° — press “Re-run OCR at "
-                f"this rotation” to update it.")
+                f"⚠ Tabel di bawah dibaca saat posisi halaman "
+                f"{self._result.rotation_applied}° — tekan “Baca ulang "
+                f"halaman ini” untuk memperbaruinya.")
             self.stale_banner.setVisible(stale)
 
     def _on_reocr_clicked(self) -> None:

@@ -32,10 +32,12 @@ class OcrWorker(QObject):
     failed = Signal(str)
 
     def __init__(self, pdf_path: str, config: PipelineConfig,
+                 pages: list[int] | None = None,
                  parent: QObject | None = None):
         super().__init__(parent)
         self._pdf_path = pdf_path
         self._config = config
+        self._pages = pages   # explicit page list (resume); None = range
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -46,11 +48,17 @@ class OcrWorker(QObject):
     def run(self) -> None:
         try:
             info = pdf_loader.inspect_pdf(self._pdf_path)
-            first, last = 1, info.n_pages
-            if self._config.page_range:
-                first = max(first, self._config.page_range[0])
-                last = min(last, self._config.page_range[1])
-            pages = list(range(first, last + 1))
+            if self._pages is not None:
+                # Explicit list — used to resume: only the pages a prior
+                # (cancelled/crashed) run did not finish.
+                pages = sorted(p for p in self._pages
+                               if 1 <= p <= info.n_pages)
+            else:
+                first, last = 1, info.n_pages
+                if self._config.page_range:
+                    first = max(first, self._config.page_range[0])
+                    last = min(last, self._config.page_range[1])
+                pages = list(range(first, last + 1))
             total = len(pages)
 
             self.progress.emit(0, total, "Loading OCR engine…")
