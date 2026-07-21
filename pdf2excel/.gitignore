@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.xlsx
+sample_scanned.pdf
+sample.pdf
+dist/
+build/
+*.spec
