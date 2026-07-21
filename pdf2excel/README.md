@@ -5,13 +5,13 @@ papers: rekening koran, faktur, debit/credit notes, RBP listings — into
 clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
 calls anywhere in the OCR/extraction path. All models run on-device.
 
-## Status: milestone 2 (GUI shell) ✅
+## Status: milestone 3 (review/QA view) ✅
 
 | # | Milestone | Status |
 |---|-----------|--------|
 | 1 | Core pipeline: load → detect scanned → rasterize 300 DPI → auto-rotate → RapidOCR → grid reconstruction → .xlsx | **done** |
 | 2 | PySide6 shell: open file, batch run in worker thread, page list | **done** |
-| 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | pending |
+| 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | **done** |
 | 4 | Export options + resumable session persistence | pending |
 | 5 | PaddleOCR PP-StructureV3 engine (optional) | pending (interface wired) |
 | 6 | PyInstaller packaging | pending |
@@ -49,12 +49,30 @@ python -m app
 ```
 
 Open PDF… → Run OCR → watch pages fill in live (each list entry shows
-the reconstructed grid size and any auto-applied rotation) → click a
-page to see its corrected image and extracted table → Export…. OCR runs
-in a background thread; the Cancel button stops after the current page.
-Engine, DPI, default rotation, and export layout sit in the toolbar; the
-PaddleOCR engine appears greyed-out with an install hint until its
-package is installed.
+the reconstructed grid size and any auto-applied rotation) → review
+each page → Export…. OCR runs in a background thread; the Cancel button
+stops after the current page. Engine, DPI, default rotation, and export
+layout sit in the toolbar; the PaddleOCR engine appears greyed-out with
+an install hint until its package is installed.
+
+**Review workflow (per page).** The corrected page image sits next to
+the extracted table:
+
+* **Edit cells directly** — the raw text is re-parsed with id-ID rules,
+  the cell turns green, and it is marked `edited` for the export audit
+  trail. Amber cells are the ones OCR was unsure about; start there.
+* **Rotation override** — pick a rotation; the image updates instantly,
+  a banner reminds you the table was extracted at the old angle, and
+  “Re-run OCR at this rotation” re-extracts just that page in the
+  background (confirming first if it would discard your edits). The
+  document-type label survives a re-run; the reviewed flag is reset.
+* **Document type** — free-text dropdown (e.g. *rekening koran*,
+  *faktur*); labels accumulate for reuse and drive the
+  `merged_by_label` export layout.
+* **Reviewed** — tick when the page checks out; the page list shows ✓.
+
+**Export gate.** Exporting with unreviewed pages pops a warning listing
+them — OCR output is never exported silently.
 
 ### Headless CLI
 

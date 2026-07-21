@@ -9,7 +9,9 @@ Layout per sheet:
     numeric ones. Finance tie-out requirement: the parsed value must
     always be checkable against what the OCR actually read.
   * Low-confidence cells get an amber fill so reviewers can see at a
-    glance what the QA pass flagged.
+    glance what the QA pass flagged; cells corrected by a human during
+    review get a green fill instead (and are never amber — the human
+    correction supersedes the OCR confidence).
 
 Layouts: "sheet_per_page" (default) or "merged_by_label" which
 concatenates pages sharing a document-type label into one sheet,
@@ -26,6 +28,7 @@ from app.config import PipelineConfig
 from app.pipeline.models import PageResult
 
 LOW_CONF_FILL = PatternFill("solid", start_color="FFF3CD")   # amber
+EDITED_FILL = PatternFill("solid", start_color="D4EDDA")     # green
 ERROR_FILL = PatternFill("solid", start_color="F8D7DA")      # red
 RAW_HEADER_FONT = Font(italic=True, color="888888")
 
@@ -55,7 +58,9 @@ def _write_page_grid(ws, page: PageResult, start_row: int,
                 target.value = float(cell_data.value)
             else:
                 target.value = cell_data.raw
-            if cell_data.confidence < config.low_confidence_threshold:
+            if cell_data.edited:
+                target.fill = EDITED_FILL
+            elif cell_data.confidence < config.low_confidence_threshold:
                 target.fill = LOW_CONF_FILL
             if config.export_raw_columns:
                 ws.cell(row=r, column=raw_offset + c + 1, value=cell_data.raw)

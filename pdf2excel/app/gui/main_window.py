@@ -1,14 +1,18 @@
-"""Main application window (milestone 2).
+"""Main application window.
 
 Layout:
   toolbar   Open PDF… | Run OCR | Cancel | Export…   [engine] [DPI] [rotation] [layout]
-  splitter  page list | (page image preview / extracted grid preview)
+  splitter  page list | ReviewView (image + editable table + QA controls)
   statusbar progress bar + message
 
-The preview pane here is read-only; milestone 3 turns it into the full
-QA view (editable cells, rotation override, doc-type labels). OCR always
-runs in a QThread via OcrWorker — the UI thread never touches the
-pipeline directly.
+OCR always runs in a QThread (OcrWorker for batches, SinglePageWorker
+for the QA view's rotation-override re-runs) — the UI thread never
+touches the pipeline directly.
+
+Export gate: exporting while pages remain unreviewed pops a warning
+listing how many pages were never ticked "Reviewed"; the user must
+explicitly choose to export anyway. OCR output is never exported
+silently — finance tie-out requirement.
 """
 
 from __future__ import annotations
@@ -19,21 +23,18 @@ from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
-    QMainWindow, QMessageBox, QProgressBar, QScrollArea, QSpinBox,
-    QSplitter, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout,
-    QWidget,
+    QMainWindow, QMessageBox, QProgressBar, QSpinBox, QSplitter,
+    QToolBar, QVBoxLayout, QWidget,
 )
 
 from app.config import PipelineConfig
-from app.gui.qt_utils import ndarray_to_pixmap
-from app.gui.worker import OcrWorker
-from app.pipeline import orientation, pdf_loader
+from app.gui.review_view import ReviewView
+from app.gui.worker import OcrWorker, SinglePageWorker
+from app.pipeline import pdf_loader
 from app.pipeline.engines import ENGINES, available_engines
 from app.pipeline.models import PageResult
 
-LOW_CONF_COLOR = QColor("#FFF3CD")   # matches the export highlight
 ERROR_COLOR = QColor("#F8D7DA")
-PREVIEW_DPI = 110                    # quick render for the preview pane
 
 
 class MainWindow(QMainWindow):
@@ -45,8 +46,11 @@ class MainWindow(QMainWindow):
         self._pdf_path: str | None = None
         self._pdf_info: pdf_loader.PdfInfo | None = None
         self._results: dict[int, PageResult] = {}   # page number → result
+        self._known_labels: set[str] = set()
         self._thread: QThread | None = None
         self._worker: OcrWorker | None = None
+        self._sp_thread: QThread | None = None
+        self._sp_worker: SinglePageWorker | None = None
 
         self._build_toolbar()
         self._build_central()
@@ -87,8 +91,7 @@ class MainWindow(QMainWindow):
             if not avail[name]:
                 # Graceful degradation: visible but disabled, with a
                 # tooltip explaining how to enable it.
-                model = self.engine_combo.model()
-                item = model.item(idx)
+                item = self.engine_combo.model().item(idx)
                 item.setEnabled(False)
                 item.setToolTip(f"Not installed — {cls.unavailable_hint()}")
         tb.addWidget(self.engine_combo)
@@ -107,8 +110,8 @@ class MainWindow(QMainWindow):
         self.rotation_combo = QComboBox()
         self.rotation_combo.addItems(["auto", "0", "90", "180", "270"])
         self.rotation_combo.setToolTip(
-            "auto = detect per page; a number forces that rotation "
-            "for every page (per-page override arrives with the QA view).")
+            "auto = detect per page; a number forces that rotation for "
+            "every page. Per-page override lives in the review pane.")
         tb.addWidget(self.rotation_combo)
 
         tb.addWidget(QLabel(" Layout: "))
@@ -120,23 +123,13 @@ class MainWindow(QMainWindow):
         self.page_list = QListWidget()
         self.page_list.currentItemChanged.connect(self._show_selected_page)
 
-        self.image_label = QLabel("Open a PDF to begin.")
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        scroll = QScrollArea()
-        scroll.setWidget(self.image_label)
-        scroll.setWidgetResizable(True)
-
-        self.grid_table = QTableWidget()
-        self.grid_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-
-        right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(scroll)
-        right.addWidget(self.grid_table)
-        right.setSizes([500, 300])
+        self.review = ReviewView()
+        self.review.result_changed.connect(self._on_result_changed)
+        self.review.request_reocr.connect(self._on_request_reocr)
 
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.page_list)
-        split.addWidget(right)
+        split.addWidget(self.review)
         split.setSizes([240, 1040])
 
         container = QWidget()
@@ -154,10 +147,10 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress_bar)
 
     def _update_actions(self) -> None:
-        running = self._thread is not None
+        running = self._thread is not None or self._sp_thread is not None
         self.act_open.setEnabled(not running)
         self.act_run.setEnabled(self._pdf_path is not None and not running)
-        self.act_cancel.setEnabled(running)
+        self.act_cancel.setEnabled(self._thread is not None)
         self.act_export.setEnabled(bool(self._results) and not running)
         for w in (self.engine_combo, self.dpi_spin,
                   self.rotation_combo, self.layout_combo):
@@ -182,9 +175,9 @@ class MainWindow(QMainWindow):
         self._pdf_path = path
         self._pdf_info = info
         self._results.clear()
-        self.grid_table.clear()
-        self.grid_table.setRowCount(0)
-        self.grid_table.setColumnCount(0)
+        self._known_labels.clear()
+        self.review.set_known_labels([])
+        self.review.set_page(None, None, None)
 
         self.page_list.clear()
         for pno in range(1, info.n_pages + 1):
@@ -212,6 +205,15 @@ class MainWindow(QMainWindow):
     def run_ocr(self) -> None:
         if not self._pdf_path or self._thread is not None:
             return
+        if self._results and any(
+                c.edited for r in self._results.values()
+                for row in r.grid for c in row if c):
+            answer = QMessageBox.question(
+                self, "Discard review edits?",
+                "Re-running OCR replaces all extracted tables, including "
+                "cells you edited during review. Continue?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self._results.clear()
         for i in range(self.page_list.count()):
             item = self.page_list.item(i)
@@ -244,6 +246,25 @@ class MainWindow(QMainWindow):
     def export_xlsx(self) -> None:
         if not self._results:
             return
+        # Export gate: never silently trust OCR — the user must at least
+        # acknowledge skipping the review of flagged pages.
+        unreviewed = [p for p in self._results.values()
+                      if not p.reviewed and not p.error]
+        if unreviewed:
+            pages = ", ".join(str(p.page_number) for p in unreviewed[:12])
+            if len(unreviewed) > 12:
+                pages += ", …"
+            answer = QMessageBox.warning(
+                self, "Unreviewed pages",
+                f"{len(unreviewed)} page(s) have not been marked as "
+                f"reviewed (pages {pages}).\n\nOCR output is not reliable "
+                "enough for finance tie-out without a human check. "
+                "Export anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
         default = ""
         if self._pdf_path:
             default = os.path.splitext(self._pdf_path)[0] + ".xlsx"
@@ -271,7 +292,7 @@ class MainWindow(QMainWindow):
             output_layout=self.layout_combo.currentText(),
         )
 
-    # ------------------------------------------------------ worker slots
+    # ------------------------------------------------------ batch worker
 
     def _on_progress(self, done: int, total: int, message: str) -> None:
         self.progress_bar.setMaximum(total)
@@ -280,17 +301,7 @@ class MainWindow(QMainWindow):
 
     def _on_page_done(self, result: PageResult) -> None:
         self._results[result.page_number] = result
-        item = self._item_for_page(result.page_number)
-        if item is not None:
-            if result.error:
-                item.setText(f"Page {result.page_number} — ERROR")
-                item.setBackground(ERROR_COLOR)
-            else:
-                rot = (f", rot {result.rotation_applied}°"
-                       if result.rotation_applied else "")
-                item.setText(
-                    f"Page {result.page_number} — "
-                    f"{result.n_rows}×{result.n_cols}{rot}")
+        self._refresh_item(result)
         current = self.page_list.currentItem()
         if current and current.data(Qt.ItemDataRole.UserRole) == result.page_number:
             self._show_selected_page(current, None)
@@ -303,7 +314,7 @@ class MainWindow(QMainWindow):
         if n_err:
             msg += f" — {n_err} page(s) failed"
         self.progress_bar.setVisible(False)
-        self.status_label.setText(msg + ".")
+        self.status_label.setText(msg + ". Review each page, then Export.")
         self._update_actions()
 
     def _on_failed(self, message: str) -> None:
@@ -323,7 +334,96 @@ class MainWindow(QMainWindow):
         self._thread = None
         self._worker = None
 
-    # ---------------------------------------------------------- preview
+    # ------------------------------------------------- review view slots
+
+    def _on_result_changed(self, result: PageResult) -> None:
+        if result.doc_type_label:
+            if result.doc_type_label not in self._known_labels:
+                self._known_labels.add(result.doc_type_label)
+                self.review.set_known_labels(sorted(self._known_labels))
+        self._refresh_item(result)
+
+    def _on_request_reocr(self, page_number: int, rotation: int) -> None:
+        if not self._pdf_path or self._sp_thread is not None:
+            return
+        result = self._results.get(page_number)
+        if result is not None and any(
+                c.edited for row in result.grid for c in row if c):
+            answer = QMessageBox.question(
+                self, "Discard edits on this page?",
+                f"Page {page_number} has reviewer edits. Re-running OCR "
+                "replaces the whole table, including those edits. Continue?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self._sp_worker = SinglePageWorker(
+            self._pdf_path, page_number, self._current_config(), rotation)
+        self._sp_thread = QThread(self)
+        self._sp_worker.moveToThread(self._sp_thread)
+        self._sp_thread.started.connect(self._sp_worker.run)
+        self._sp_worker.done.connect(self._on_reocr_done)
+        self._sp_worker.failed.connect(self._on_reocr_failed)
+
+        self.review.set_busy(True)
+        self.status_label.setText(
+            f"Re-running OCR on page {page_number} at {rotation}°…")
+        self._sp_thread.start()
+        self._update_actions()
+
+    def _on_reocr_done(self, result: PageResult) -> None:
+        self._teardown_sp_thread()
+        old = self._results.get(result.page_number)
+        if old is not None:  # keep the QA metadata, replace the extraction
+            result.doc_type_label = old.doc_type_label
+        self._results[result.page_number] = result
+        self._refresh_item(result)
+        self.review.set_busy(False)
+        current = self.page_list.currentItem()
+        if current and current.data(Qt.ItemDataRole.UserRole) == result.page_number:
+            self.review.set_page(self._pdf_path, result.page_number, result)
+        self.status_label.setText(
+            f"Page {result.page_number} re-extracted at "
+            f"{result.rotation_applied}°.")
+        self._update_actions()
+
+    def _on_reocr_failed(self, message: str) -> None:
+        self._teardown_sp_thread()
+        self.review.set_busy(False)
+        self.status_label.setText("Re-OCR failed.")
+        self._update_actions()
+        QMessageBox.critical(self, "Re-OCR failed", message)
+
+    def _teardown_sp_thread(self) -> None:
+        if self._sp_thread:
+            self._sp_thread.quit()
+            self._sp_thread.wait()
+            self._sp_thread.deleteLater()
+        if self._sp_worker:
+            self._sp_worker.deleteLater()
+        self._sp_thread = None
+        self._sp_worker = None
+
+    # ---------------------------------------------------------- helpers
+
+    def _refresh_item(self, result: PageResult) -> None:
+        item = self._item_for_page(result.page_number)
+        if item is None:
+            return
+        if result.error:
+            item.setText(f"Page {result.page_number} — ERROR")
+            item.setBackground(ERROR_COLOR)
+            return
+        parts = [f"Page {result.page_number} — "
+                 f"{result.n_rows}×{result.n_cols}"]
+        if result.rotation_applied:
+            parts.append(f"rot {result.rotation_applied}°")
+        if result.doc_type_label:
+            parts.append(f"[{result.doc_type_label}]")
+        if result.reviewed:
+            parts.append("✓")
+        item.setText(", ".join(parts[:2]) + " " + " ".join(parts[2:])
+                     if len(parts) > 2 else ", ".join(parts))
+        item.setBackground(QColor("transparent"))
 
     def _item_for_page(self, page_number: int) -> QListWidgetItem | None:
         for i in range(self.page_list.count()):
@@ -337,54 +437,17 @@ class MainWindow(QMainWindow):
         if current is None or self._pdf_path is None:
             return
         pno = current.data(Qt.ItemDataRole.UserRole)
-        result = self._results.get(pno)
-
-        try:
-            image = pdf_loader.rasterize_page(self._pdf_path, pno,
-                                              dpi=PREVIEW_DPI)
-            if result and result.rotation_applied:
-                image = orientation.rotate_image(image, result.rotation_applied)
-            pixmap = ndarray_to_pixmap(image)
-            self.image_label.setPixmap(pixmap.scaled(
-                self.image_label.parentWidget().size() * 0.98,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation))
-        except Exception as exc:
-            self.image_label.setText(f"Preview failed: {exc}")
-
-        self._populate_grid(result)
-
-    def _populate_grid(self, result: PageResult | None) -> None:
-        self.grid_table.clear()
-        if result is None or not result.grid:
-            self.grid_table.setRowCount(0)
-            self.grid_table.setColumnCount(0)
-            return
-        threshold = PipelineConfig().low_confidence_threshold
-        self.grid_table.setRowCount(result.n_rows)
-        self.grid_table.setColumnCount(result.n_cols)
-        for r, row in enumerate(result.grid):
-            for c, cell in enumerate(row):
-                if cell is None:
-                    continue
-                item = QTableWidgetItem(cell.raw)
-                tip = f"confidence {cell.confidence:.2f}"
-                if cell.value is not None:
-                    tip += f" — parsed: {cell.value}"
-                item.setToolTip(tip)
-                if cell.confidence < threshold:
-                    item.setBackground(LOW_CONF_COLOR)
-                self.grid_table.setItem(r, c, item)
-        self.grid_table.resizeColumnsToContents()
+        self.review.set_page(self._pdf_path, pno, self._results.get(pno))
 
     # ----------------------------------------------------------- events
 
     def closeEvent(self, event) -> None:
         if self._worker:
             self._worker.cancel()
-        if self._thread:
-            self._thread.quit()
-            self._thread.wait()
+        for thread in (self._thread, self._sp_thread):
+            if thread:
+                thread.quit()
+                thread.wait()
         event.accept()
 
 

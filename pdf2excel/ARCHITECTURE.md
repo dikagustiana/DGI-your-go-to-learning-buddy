@@ -16,8 +16,9 @@ app/
 │       ├── rapidocr_engine.py   default engine (tokens only)
 │       └── paddle_engine.py     PP-StructureV3 (optional, native tables)
 ├── gui/
-│   ├── main_window.py     MainWindow: toolbar, page list, preview, statusbar
-│   ├── worker.py          OcrWorker: pipeline in a QThread, per-page signals
+│   ├── main_window.py     MainWindow: toolbar, page list, review, statusbar
+│   ├── review_view.py     QA view: image + editable table + rotation/label
+│   ├── worker.py          OcrWorker (batch) + SinglePageWorker (re-OCR)
 │   └── qt_utils.py        numpy → QPixmap
 ├── export/
 │   └── excel.py           openpyxl export: parsed values + hidden raw block
@@ -138,7 +139,31 @@ setup failures (bad file, missing engine) abort via `failed(str)`.
 The main window disables Run/Export/config widgets while a batch runs,
 re-renders the preview of whichever page is selected as its result
 arrives, and tears the thread down with `quit()`/`wait()` on finish and
-on window close.
+on window close. `SinglePageWorker` follows the same pattern for the QA
+view's per-page re-OCR (rotation forced, `rotation_source="manual"`).
+
+### Review/QA view (`gui/review_view.py`)
+
+The QA pass is a hard requirement: OCR drops/misreads digits (observed
+`192.240` → `92.240`), so nothing is trusted or exported unchecked.
+
+* The view binds directly to the page's `PageResult` and mutates it in
+  place; every user action emits `result_changed` so the main window
+  refreshes the page list and (milestone 4) the session store persists.
+* **Cell edits** re-parse through `locale_id` immediately, set
+  `edited=True`, and recolor green. Amber = confidence below threshold;
+  green (human-verified) supersedes amber, both in the UI and in the
+  Excel export fills. Editing an empty slot creates a `Cell` with
+  confidence 1.0. Human edits are never silently discarded — batch
+  re-runs and per-page re-OCR both confirm first.
+* **Rotation override** decouples image from grid: the image re-renders
+  immediately at the chosen angle, a stale banner appears because the
+  grid still reflects the extraction angle, and the re-OCR button sends
+  `request_reocr(page, rotation)` to the main window. After a re-run the
+  doc-type label is preserved but `reviewed` resets — a new extraction
+  has not been checked by anyone.
+* **Export gate**: the main window warns (default No) when exporting
+  while non-error pages remain unreviewed, listing the page numbers.
 
 ### Session persistence (milestone 4)
 

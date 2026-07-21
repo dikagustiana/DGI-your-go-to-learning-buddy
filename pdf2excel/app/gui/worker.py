@@ -76,3 +76,30 @@ class OcrWorker(QObject):
             self.progress.emit(i + 1, total, f"Page {pno} done")
 
         self.finished.emit(results, False)
+
+
+class SinglePageWorker(QObject):
+    """Re-runs one page — used by the QA view's rotation override."""
+
+    done = Signal(object)   # PageResult
+    failed = Signal(str)
+
+    def __init__(self, pdf_path: str, page_number: int,
+                 config: PipelineConfig, rotation: int,
+                 parent: QObject | None = None):
+        super().__init__(parent)
+        self._pdf_path = pdf_path
+        self._page_number = page_number
+        self._config = config
+        self._rotation = rotation % 360
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            import dataclasses
+            config = dataclasses.replace(self._config, rotation=self._rotation)
+            result = process_page(self._pdf_path, self._page_number, config)
+            result.rotation_source = "manual"
+            self.done.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
