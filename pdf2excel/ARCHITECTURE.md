@@ -24,8 +24,11 @@ app/
 │   └── qt_utils.py        numpy → QPixmap
 ├── export/
 │   └── excel.py           openpyxl export: parsed values + hidden raw block
-tests/                     unit tests (locale, table builder)
+tests/                     unit tests (locale, table builder, html tables,
+                           session store, offscreen GUI)
 samples/make_sample.py     synthetic image-only sample PDF generator
+launcher.py                PyInstaller entry point (= python -m app)
+pdf2excel.spec             PyInstaller build spec (GUI + CLI executables)
 ```
 
 ## Design decisions
@@ -234,6 +237,23 @@ unreviewed-pages warning gate — it exports exactly the human-checked
 subset. The CLI equivalent is `python -m app export input.pdf -o out
 [--layout …] [--no-raw] [--reviewed-only]`, which reads the session and
 never re-runs OCR.
+
+### Packaging (`pdf2excel.spec`)
+
+One PyInstaller Analysis over `launcher.py` (equivalent to
+`python -m app`), two EXEs sharing one COLLECT folder: `pdf2excel`
+(windowed) and `pdf2excel-cli` (console). One-folder mode because Qt +
+onnxruntime in a one-file binary re-unpack on every launch. RapidOCR's
+ONNX models are wheel data files, collected explicitly with
+`collect_data_files("rapidocr_onnxruntime")` — this is what makes the
+frozen app work offline with no model downloads.
+
+paddle/paddleocr/paddlex are hard-excluded: PyInstaller traces the lazy
+imports inside `paddle_engine.py`, so without the exclude every build
+made on a paddle-equipped dev machine would ship the multi-gigabyte
+stack. Inside the frozen app `find_spec("paddle")` returns None, so the
+engine reports unavailable and the GUI greys it out — the same graceful
+path as a source install without paddle.
 
 ### Excel export (`export/excel.py`)
 

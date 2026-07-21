@@ -5,7 +5,7 @@ papers: rekening koran, faktur, debit/credit notes, RBP listings — into
 clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
 calls anywhere in the OCR/extraction path. All models run on-device.
 
-## Status: milestone 5 (PP-StructureV3 engine) ✅
+## Status: complete ✅
 
 | # | Milestone | Status |
 |---|-----------|--------|
@@ -14,7 +14,7 @@ calls anywhere in the OCR/extraction path. All models run on-device.
 | 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | **done** |
 | 4 | Export options + resumable session persistence | **done** |
 | 5 | PaddleOCR PP-StructureV3 engine (optional) | **done** |
-| 6 | PyInstaller packaging | pending |
+| 6 | PyInstaller packaging | **done** |
 
 ## Setup
 
@@ -167,10 +167,43 @@ chance to check flagged cells against the page image.
 python -m pytest tests/
 ```
 
-## Packaging
+## Packaging (standalone executable)
 
-PyInstaller packaging lands in milestone 6 and will be documented here
-(`pyinstaller` spec + build command for a Windows `.exe`).
+Build on the OS you are targeting (PyInstaller does not cross-compile:
+build the Windows `.exe` on Windows, the macOS app on macOS).
+
+```bash
+pip install pyinstaller
+pyinstaller pdf2excel.spec --noconfirm
+```
+
+Output: `dist/pdf2excel/` — a one-folder bundle (~650 MB) containing
+
+| executable | use |
+|---|---|
+| `pdf2excel` (`.exe` on Windows) | the GUI — double-click, no console window |
+| `pdf2excel-cli` | `inspect` / `convert` / `export` for scripted, headless use |
+
+Zip the folder to distribute; no Python install is needed on the target
+machine, and the bundled RapidOCR models make it fully offline.
+
+Notes:
+
+* **One-folder, not one-file** — deliberate: Qt + onnxruntime in a
+  one-file exe unpack to a temp dir on every launch (slow starts,
+  antivirus false positives).
+* **The bundle ships the RapidOCR engine only.** PaddleOCR is excluded
+  in the spec — both for size (gigabytes) and because PyInstaller would
+  otherwise trace the lazy imports and bloat every build made on a
+  machine that has paddle installed. Users who want PP-StructureV3 run
+  from source; the frozen app greys that engine out with the install
+  hint.
+* **macOS**: the same spec builds a runnable binary; for a proper
+  signed `.app` bundle add a `BUNDLE(...)` step and codesign — outside
+  the scope of this project.
+* If the build machine has a Debian/Ubuntu system `cryptography`
+  package, PyInstaller's analysis can crash with a `pyo3_runtime`
+  panic; `pip install --ignore-installed cryptography` fixes it.
 
 ## Documentation
 
