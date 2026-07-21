@@ -13,12 +13,27 @@ Usage:  python samples/make_sample.py [out.pdf]
 from __future__ import annotations
 
 import io
+import os
 import sys
 
 import fitz
 from PIL import Image, ImageDraw, ImageFont
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+# Cross-platform monospace font lookup; falls back to Pillow's scalable
+# built-in font when none of the system fonts exist.
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",  # Linux
+    "C:/Windows/Fonts/consola.ttf",                          # Windows
+    "C:/Windows/Fonts/cour.ttf",
+    "/System/Library/Fonts/Menlo.ttc",                       # macOS
+]
+
+
+def load_font(size: int) -> ImageFont.ImageFont:
+    for path in FONT_CANDIDATES:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default(size)
 
 STATEMENT_ROWS = [
     ("TANGGAL", "KETERANGAN", "MUTASI", "SALDO"),
@@ -44,8 +59,8 @@ def draw_table(rows, size=(2480, 3508), col_x=(150, 600, 1500, 2000),
     """Render a table onto a white page image (defaults ~A4 at 300 DPI)."""
     img = Image.new("RGB", size, "white")
     d = ImageDraw.Draw(img)
-    font = ImageFont.truetype(FONT, 44)
-    title_font = ImageFont.truetype(FONT, 54)
+    font = load_font(44)
+    title_font = load_font(54)
     d.text((col_x[0], 150), title, fill="black", font=title_font)
     y = 320
     for row in rows:
