@@ -5,12 +5,12 @@ papers: rekening koran, faktur, debit/credit notes, RBP listings — into
 clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
 calls anywhere in the OCR/extraction path. All models run on-device.
 
-## Status: milestone 1 (headless core pipeline) ✅
+## Status: milestone 2 (GUI shell) ✅
 
 | # | Milestone | Status |
 |---|-----------|--------|
 | 1 | Core pipeline: load → detect scanned → rasterize 300 DPI → auto-rotate → RapidOCR → grid reconstruction → .xlsx | **done** |
-| 2 | PySide6 shell: open file, batch run in worker thread, page list | pending |
+| 2 | PySide6 shell: open file, batch run in worker thread, page list | **done** |
 | 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | pending |
 | 4 | Export options + resumable session persistence | pending |
 | 5 | PaddleOCR PP-StructureV3 engine (optional) | pending (interface wired) |
@@ -40,7 +40,23 @@ Optional extras:
   first run. Installed via the wheel, **not** by cloning the PaddleOCR
   repo (the `ppstructure/` directory there is the deprecated V2).
 
-## Usage (headless CLI, milestone 1)
+## Usage
+
+### GUI
+
+```bash
+python -m app
+```
+
+Open PDF… → Run OCR → watch pages fill in live (each list entry shows
+the reconstructed grid size and any auto-applied rotation) → click a
+page to see its corrected image and extracted table → Export…. OCR runs
+in a background thread; the Cancel button stops after the current page.
+Engine, DPI, default rotation, and export layout sit in the toolbar; the
+PaddleOCR engine appears greyed-out with an install hint until its
+package is installed.
+
+### Headless CLI
 
 ```bash
 # What is this file? (page count, scanned vs native, engine availability)

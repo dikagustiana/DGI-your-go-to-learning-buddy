@@ -1,12 +1,8 @@
 """Entry point.
 
-Milestone 1 ships the headless CLI:
-
-    python -m app convert input.pdf -o output.xlsx [options]
+    python -m app                                  # launch the GUI
+    python -m app convert input.pdf -o out.xlsx    # headless CLI
     python -m app inspect input.pdf
-
-``python -m app`` with no arguments will launch the PySide6 GUI from
-milestone 2 onward; until then it prints the CLI help.
 """
 
 from __future__ import annotations
@@ -101,9 +97,15 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if not args.command:
-        # Milestone 2 will launch the PySide6 GUI here.
-        parser.print_help()
-        return 0
+        try:
+            from app.gui.main_window import main as gui_main
+        except ImportError as exc:
+            print(f"GUI unavailable ({exc}).\n"
+                  f"Install the GUI dependency with: pip install PySide6\n",
+                  file=sys.stderr)
+            parser.print_help()
+            return 1
+        return gui_main()
     return args.func(args)
 
 

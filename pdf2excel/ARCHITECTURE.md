@@ -15,6 +15,10 @@ app/
 │       ├── base.py        OCREngine interface + EngineUnavailableError
 │       ├── rapidocr_engine.py   default engine (tokens only)
 │       └── paddle_engine.py     PP-StructureV3 (optional, native tables)
+├── gui/
+│   ├── main_window.py     MainWindow: toolbar, page list, preview, statusbar
+│   ├── worker.py          OcrWorker: pipeline in a QThread, per-page signals
+│   └── qt_utils.py        numpy → QPixmap
 ├── export/
 │   └── excel.py           openpyxl export: parsed values + hidden raw block
 tests/                     unit tests (locale, table builder)
@@ -118,12 +122,23 @@ class OCREngine:
 nothing crashes on import. `use_cls=False` exists specifically for the
 orientation detector's flip stage.
 
-### Threading model (milestones 2+)
+### Threading model
 
-`runner.process_pdf(path, config, progress, should_cancel)` is
-deliberately Qt-free. The GUI will run it inside a `QThread` worker and
-wire `progress` to signals and `should_cancel` to a cancel flag; the CLI
-passes plain callables. One processing path, two frontends.
+The pipeline (`app.pipeline.*`) is deliberately Qt-free; the CLI drives
+it with plain callables. The GUI wraps it in `gui/worker.py`:
+`OcrWorker` is a `QObject` moved to a `QThread`; it loads the engine and
+loops pages off the UI thread, emitting `progress(done, total, msg)`,
+`page_done(PageResult)` (so the page list fills in live during a
+150-page run), and `finished(results, was_cancelled)`. Cancellation is
+cooperative — a flag checked between pages, so the in-flight page
+completes and no partial state is left behind. Per-page exceptions
+become error-marked `PageResult`s instead of killing the batch; only
+setup failures (bad file, missing engine) abort via `failed(str)`.
+
+The main window disables Run/Export/config widgets while a batch runs,
+re-renders the preview of whichever page is selected as its result
+arrives, and tears the thread down with `quit()`/`wait()` on finish and
+on window close.
 
 ### Session persistence (milestone 4)
 
