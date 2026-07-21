@@ -23,12 +23,33 @@ class RapidOCREngine(OCREngine):
     _instance = None  # model load is slow; share one instance per process
 
     @classmethod
+    def models_present(cls) -> bool:
+        """Verify the bundled ONNX models actually resolve on disk.
+
+        The models ship as data files inside the rapidocr_onnxruntime
+        package. In a PyInstaller one-folder build they are collected
+        under _internal/rapidocr_onnxruntime/models — the package's
+        __file__ points there too, so this same check validates both
+        the source install and the frozen app. Detection, angle
+        classification and recognition each need one model; anything
+        less means a broken bundle, and the app must fail loudly at
+        startup rather than attempt a download (offline-first promise).
+        """
+        try:
+            import pathlib
+            import rapidocr_onnxruntime
+            pkg_dir = pathlib.Path(rapidocr_onnxruntime.__file__).parent
+            return len(list(pkg_dir.glob("**/*.onnx"))) >= 3
+        except Exception:
+            return False
+
+    @classmethod
     def is_available(cls) -> bool:
         try:
             import rapidocr_onnxruntime  # noqa: F401
-            return True
         except ImportError:
             return False
+        return cls.models_present()
 
     @classmethod
     def unavailable_hint(cls) -> str:

@@ -21,11 +21,19 @@ that has it installed. Paddle users run from source; the frozen app
 greys the engine out with the usual install hint.
 """
 
+import sys
+
 from PyInstaller.utils.hooks import collect_data_files
 
 # RapidOCR ships its ONNX models + config.yaml inside the wheel; they
 # are data files, not imports, so they must be collected explicitly.
+# The app refuses to consider the engine available unless the .onnx
+# files resolve on disk (RapidOCREngine.models_present), so a build
+# that loses them fails visibly instead of trying to download.
 datas = collect_data_files("rapidocr_onnxruntime")
+
+# Windows executables get the app icon; other platforms ignore it.
+ICON = "assets/icon.ico" if sys.platform == "win32" else None
 
 a = Analysis(
     ["launcher.py"],
@@ -59,6 +67,7 @@ exe_gui = EXE(
     strip=False,
     upx=False,
     console=False,          # windowed: no console flash behind the GUI
+    icon=ICON,
 )
 
 exe_cli = EXE(
@@ -71,6 +80,7 @@ exe_cli = EXE(
     strip=False,
     upx=False,
     console=True,           # stdout/stderr visible for scripted use
+    icon=ICON,
 )
 
 coll = COLLECT(
