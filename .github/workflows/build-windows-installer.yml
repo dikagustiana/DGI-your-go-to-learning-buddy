@@ -1,0 +1,79 @@
+# Builds the Windows installer for pdf2excel ("PDF ke Excel").
+#
+# Runs on a fresh windows-latest runner:
+#   freeze with PyInstaller -> smoke-test the frozen exe (real OCR) ->
+#   compile the Inno Setup installer -> SILENT-INSTALL it and run the
+#   INSTALLED app -> upload Setup.exe as an artifact.
+#
+# The silent-install step is the automated "clean machine" check: the
+# runner never has this app, and the installed exe must OCR a sample
+# PDF using only what the installer put on disk.
+
+name: Build Windows installer
+
+on:
+  push:
+    branches: [claude/pdf-to-excel-ocr-app-8079cd]
+    paths: ["pdf2excel/**", ".github/workflows/build-windows-installer.yml"]
+  workflow_dispatch:
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pdf2excel
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Generate sample scanned PDF
+        run: python samples/make_sample.py sample.pdf
+
+      - name: Freeze with PyInstaller
+        run: pyinstaller pdf2excel.spec --noconfirm
+
+      - name: Smoke-test frozen exe (bundled models, real OCR)
+        run: |
+          $out = & dist\pdf2excel\pdf2excel-cli.exe inspect sample.pdf
+          Write-Output $out
+          if (-not ($out -join "`n" -match "'rapidocr': True")) {
+            throw "RapidOCR models missing from the frozen bundle"
+          }
+          if ($out -join "`n" -match "'paddle-ppstructure': True") {
+            throw "paddle leaked into the frozen bundle"
+          }
+          & dist\pdf2excel\pdf2excel-cli.exe convert sample.pdf -o frozen.xlsx --no-session
+          if (-not (Test-Path frozen.xlsx)) { throw "frozen convert produced no xlsx" }
+
+      - name: Compile installer (Inno Setup)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+          Get-ChildItem installer\Output
+
+      - name: Clean-machine check — silent install, then run the INSTALLED app
+        run: |
+          $setup = Get-ChildItem installer\Output\*.exe | Select-Object -First 1
+          Start-Process -Wait $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          $appdir = "$env:LOCALAPPDATA\Programs\PDF ke Excel"
+          if (-not (Test-Path "$appdir\pdf2excel.exe"))   { throw "GUI exe not installed" }
+          if (-not (Test-Path "$appdir\unins000.exe"))    { throw "uninstaller not registered" }
+          & "$appdir\pdf2excel-cli.exe" convert sample.pdf -o installed.xlsx --no-session
+          if (-not (Test-Path installed.xlsx)) { throw "installed app failed to convert" }
+          Write-Output "Installed app converted the sample successfully."
+
+      - name: Upload Setup.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-ke-Excel-Setup
+          path: pdf2excel/installer/Output/*.exe
+          if-no-files-found: error
