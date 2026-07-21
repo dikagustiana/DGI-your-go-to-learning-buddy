@@ -28,11 +28,13 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import PipelineConfig
+from app.gui.export_dialog import ExportDialog
 from app.gui.review_view import ReviewView
 from app.gui.worker import OcrWorker, SinglePageWorker
 from app.pipeline import pdf_loader
 from app.pipeline.engines import ENGINES, available_engines
 from app.pipeline.models import PageResult
+from app.session import SessionStore
 
 ERROR_COLOR = QColor("#F8D7DA")
 
@@ -47,6 +49,7 @@ class MainWindow(QMainWindow):
         self._pdf_info: pdf_loader.PdfInfo | None = None
         self._results: dict[int, PageResult] = {}   # page number → result
         self._known_labels: set[str] = set()
+        self._store: SessionStore | None = None
         self._thread: QThread | None = None
         self._worker: OcrWorker | None = None
         self._sp_thread: QThread | None = None
@@ -179,18 +182,27 @@ class MainWindow(QMainWindow):
         self.review.set_known_labels([])
         self.review.set_page(None, None, None)
 
+        self._open_session(path)
+
         self.page_list.clear()
         for pno in range(1, info.n_pages + 1):
             item = QListWidgetItem(f"Page {pno} — pending")
             item.setData(Qt.ItemDataRole.UserRole, pno)
             self.page_list.addItem(item)
+        for result in self._results.values():   # resumed pages
+            self._refresh_item(result)
+            if result.doc_type_label:
+                self._known_labels.add(result.doc_type_label)
+        if self._known_labels:
+            self.review.set_known_labels(sorted(self._known_labels))
         if self.page_list.count():
             self.page_list.setCurrentRow(0)
 
+        resumed = f", resumed {len(self._results)} page(s)" if self._results else ""
         self.status_label.setText(
             f"{os.path.basename(path)} — {info.n_pages} page(s), "
             + ("native text layer" if info.has_text_layer
-               else "image-only (OCR required)"))
+               else "image-only (OCR required)") + resumed)
         self._update_actions()
 
         if info.has_text_layer:
@@ -201,6 +213,47 @@ class MainWindow(QMainWindow):
                 "than reading the text layer directly.\n\n"
                 "A direct-parse path for native PDFs is planned; for now "
                 "you can continue with OCR.")
+
+    def _open_session(self, pdf_path: str) -> None:
+        """Open (or create) the session store and offer to resume."""
+        if self._store:
+            self._store.close()
+            self._store = None
+        try:
+            had_session = SessionStore.exists_for_pdf(pdf_path)
+            self._store = SessionStore.for_pdf(pdf_path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "Session persistence disabled",
+                f"Could not open a session file next to the PDF:\n{exc}\n\n"
+                "You can still work, but progress will NOT survive "
+                "closing the app.")
+            return
+
+        if not had_session:
+            return
+        n, n_rev = self._store.summary()
+        if n == 0:
+            return
+        answer = QMessageBox.question(
+            self, "Resume session?",
+            f"A session for this PDF exists: {n} page(s) extracted, "
+            f"{n_rev} reviewed.\n\nResume it? Choosing No discards the "
+            "stored session and starts fresh.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._results = self._store.load_pages()
+        else:
+            self._store.clear_pages()
+
+    def _persist(self, result: PageResult) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.save_page(result)
+        except Exception as exc:
+            self.status_label.setText(f"WARNING — session save failed: {exc}")
 
     def run_ocr(self) -> None:
         if not self._pdf_path or self._thread is not None:
@@ -215,6 +268,12 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         self._results.clear()
+        if self._store:
+            try:
+                self._store.clear_pages()
+                self._store.save_config(self._current_config())
+            except Exception:
+                pass
         for i in range(self.page_list.count()):
             item = self.page_list.item(i)
             pno = item.data(Qt.ItemDataRole.UserRole)
@@ -246,24 +305,35 @@ class MainWindow(QMainWindow):
     def export_xlsx(self) -> None:
         if not self._results:
             return
-        # Export gate: never silently trust OCR — the user must at least
-        # acknowledge skipping the review of flagged pages.
-        unreviewed = [p for p in self._results.values()
-                      if not p.reviewed and not p.error]
-        if unreviewed:
-            pages = ", ".join(str(p.page_number) for p in unreviewed[:12])
-            if len(unreviewed) > 12:
-                pages += ", …"
-            answer = QMessageBox.warning(
-                self, "Unreviewed pages",
-                f"{len(unreviewed)} page(s) have not been marked as "
-                f"reviewed (pages {pages}).\n\nOCR output is not reliable "
-                "enough for finance tie-out without a human check. "
-                "Export anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No)
-            if answer != QMessageBox.StandardButton.Yes:
-                return
+        all_pages = [self._results[k] for k in sorted(self._results)]
+        n_reviewed = sum(1 for p in all_pages if p.reviewed)
+
+        dialog = ExportDialog(self, self.layout_combo.currentText(),
+                              n_total=len(all_pages), n_reviewed=n_reviewed)
+        if dialog.exec() != ExportDialog.DialogCode.Accepted:
+            return
+
+        if dialog.reviewed_only:
+            pages = [p for p in all_pages if p.reviewed]
+        else:
+            pages = all_pages
+            # Export gate: never silently trust OCR — the user must at
+            # least acknowledge skipping the review of flagged pages.
+            unreviewed = [p for p in pages if not p.reviewed and not p.error]
+            if unreviewed:
+                listing = ", ".join(str(p.page_number) for p in unreviewed[:12])
+                if len(unreviewed) > 12:
+                    listing += ", …"
+                answer = QMessageBox.warning(
+                    self, "Unreviewed pages",
+                    f"{len(unreviewed)} page(s) have not been marked as "
+                    f"reviewed (pages {listing}).\n\nOCR output is not "
+                    "reliable enough for finance tie-out without a human "
+                    "check. Export anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
 
         default = ""
         if self._pdf_path:
@@ -274,10 +344,13 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
+
+        config = self._current_config()
+        config.output_layout = dialog.layout
+        config.export_raw_columns = dialog.include_raw
         from app.export.excel import export_workbook
-        pages = [self._results[k] for k in sorted(self._results)]
         try:
-            export_workbook(pages, path, self._current_config())
+            export_workbook(pages, path, config)
         except Exception as exc:
             QMessageBox.critical(self, "Export failed", str(exc))
             return
@@ -301,6 +374,7 @@ class MainWindow(QMainWindow):
 
     def _on_page_done(self, result: PageResult) -> None:
         self._results[result.page_number] = result
+        self._persist(result)
         self._refresh_item(result)
         current = self.page_list.currentItem()
         if current and current.data(Qt.ItemDataRole.UserRole) == result.page_number:
@@ -341,6 +415,7 @@ class MainWindow(QMainWindow):
             if result.doc_type_label not in self._known_labels:
                 self._known_labels.add(result.doc_type_label)
                 self.review.set_known_labels(sorted(self._known_labels))
+        self._persist(result)
         self._refresh_item(result)
 
     def _on_request_reocr(self, page_number: int, rotation: int) -> None:
@@ -376,6 +451,7 @@ class MainWindow(QMainWindow):
         if old is not None:  # keep the QA metadata, replace the extraction
             result.doc_type_label = old.doc_type_label
         self._results[result.page_number] = result
+        self._persist(result)
         self._refresh_item(result)
         self.review.set_busy(False)
         current = self.page_list.currentItem()
@@ -448,6 +524,9 @@ class MainWindow(QMainWindow):
             if thread:
                 thread.quit()
                 thread.wait()
+        if self._store:
+            self._store.close()
+            self._store = None
         event.accept()
 
 

@@ -16,6 +16,7 @@ from app.pipeline.models import PageResult
 
 ProgressFn = Callable[[int, int, str], None]        # (done, total, message)
 CancelFn = Callable[[], bool]
+PageFn = Callable[[PageResult], None]               # per-page sink (e.g. session)
 
 
 def process_page(pdf_path: str, page_number: int, config: PipelineConfig,
@@ -47,9 +48,12 @@ def process_page(pdf_path: str, page_number: int, config: PipelineConfig,
 
 def process_pdf(pdf_path: str, config: PipelineConfig,
                 progress: Optional[ProgressFn] = None,
-                should_cancel: Optional[CancelFn] = None) -> list[PageResult]:
+                should_cancel: Optional[CancelFn] = None,
+                on_page: Optional[PageFn] = None) -> list[PageResult]:
     """Process a page range of a PDF; page errors are captured per page
-    so one bad scan never aborts a 150-page batch."""
+    so one bad scan never aborts a 150-page batch. ``on_page`` fires as
+    each page completes — used to persist results incrementally so a
+    crash or cancel mid-batch loses at most the in-flight page."""
     info = pdf_loader.inspect_pdf(pdf_path)
     first, last = 1, info.n_pages
     if config.page_range:
@@ -70,6 +74,8 @@ def process_pdf(pdf_path: str, config: PipelineConfig,
         except Exception as exc:  # keep the batch alive
             results.append(PageResult(page_number=pno, rotation_applied=0,
                                       rotation_source="error", error=str(exc)))
+        if on_page:
+            on_page(results[-1])
         if progress:
             progress(i + 1, total, f"page {pno} done")
     return results

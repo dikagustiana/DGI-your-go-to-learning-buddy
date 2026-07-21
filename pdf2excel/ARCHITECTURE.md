@@ -2,9 +2,10 @@
 
 ```
 app/
-├── __main__.py            CLI entry (GUI attaches here in milestone 2)
+├── __main__.py            CLI entry: GUI (no args) / inspect / convert / export
 ├── config.py              PipelineConfig — every knob the UI will expose
 ├── locale_id.py           id-ID number parsing (dot=thousands, comma=decimal)
+├── session.py             SessionStore — resumable per-page persistence (SQLite)
 ├── pipeline/
 │   ├── models.py          OCRToken / Cell / PageResult (+ JSON round-trip)
 │   ├── pdf_loader.py      PyMuPDF: scanned-vs-native detection, 300 DPI raster
@@ -165,12 +166,44 @@ The QA pass is a hard requirement: OCR drops/misreads digits (observed
 * **Export gate**: the main window warns (default No) when exporting
   while non-error pages remain unreviewed, listing the page numbers.
 
-### Session persistence (milestone 4)
+### Session persistence (`session.py`)
 
-All pipeline datatypes (`Cell`, `PageResult`) already round-trip through
-`to_dict`/`from_dict`, so the session store (SQLite) can persist per-page
-results — including human edits, review status, and doc-type labels —
-without any additional serialization work.
+SQLite (WAL mode), one file next to the PDF: `statement.pdf` →
+`statement.pdf.p2x`. Two tables: `meta` (schema version, pipeline
+config as JSON) and `pages` (one JSON `PageResult` per page, upserted
+atomically). SQLite over a JSON blob because writes are incremental —
+one page at a time, hundreds of times per session — and a crash
+mid-write must not corrupt reviewed work; keeping the file next to the
+PDF means it travels with the document and needs no registry.
+
+Write points — everything is persisted the moment it exists:
+* batch OCR: `runner.process_pdf(on_page=…)` saves each page as it
+  completes (CLI and GUI both), so cancel/crash keeps finished pages;
+* every `result_changed` from the QA view (cell edit, label, reviewed);
+* every per-page re-OCR result.
+
+On open, an existing non-empty session triggers a resume prompt
+(pages/reviewed counts from `summary()`, which uses `json_extract` —
+no full deserialization). "No" clears the stored pages. If the store
+can't be opened (read-only dir), the GUI warns once and runs without
+persistence instead of crashing. A session written by a newer schema
+version is refused (`SessionError`) rather than silently mangled.
+
+Threading: the store is touched only from the UI thread (worker results
+arrive via queued signals) or the single CLI thread — one connection,
+no cross-thread SQLite use. `Cell`/`PageResult` round-trip via
+`to_dict`/`from_dict` (Decimals as strings), so nothing numeric loses
+precision in storage.
+
+### Export options
+
+The GUI Export… button opens `gui/export_dialog.py`: sheet layout
+(per page / merged by label), include/omit the hidden raw-OCR audit
+columns, and "export only reviewed pages". Reviewed-only bypasses the
+unreviewed-pages warning gate — it exports exactly the human-checked
+subset. The CLI equivalent is `python -m app export input.pdf -o out
+[--layout …] [--no-raw] [--reviewed-only]`, which reads the session and
+never re-runs OCR.
 
 ### Excel export (`export/excel.py`)
 

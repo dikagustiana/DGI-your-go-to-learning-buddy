@@ -5,14 +5,14 @@ papers: rekening koran, faktur, debit/credit notes, RBP listings — into
 clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
 calls anywhere in the OCR/extraction path. All models run on-device.
 
-## Status: milestone 3 (review/QA view) ✅
+## Status: milestone 4 (sessions + export options) ✅
 
 | # | Milestone | Status |
 |---|-----------|--------|
 | 1 | Core pipeline: load → detect scanned → rasterize 300 DPI → auto-rotate → RapidOCR → grid reconstruction → .xlsx | **done** |
 | 2 | PySide6 shell: open file, batch run in worker thread, page list | **done** |
 | 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | **done** |
-| 4 | Export options + resumable session persistence | pending |
+| 4 | Export options + resumable session persistence | **done** |
 | 5 | PaddleOCR PP-StructureV3 engine (optional) | pending (interface wired) |
 | 6 | PyInstaller packaging | pending |
 
@@ -74,6 +74,19 @@ the extracted table:
 **Export gate.** Exporting with unreviewed pages pops a warning listing
 them — OCR output is never exported silently.
 
+**Resumable sessions.** Every extraction and every review action (cell
+edit, label, reviewed tick) is written immediately to a session file
+next to the PDF (`statement.pdf` → `statement.pdf.p2x`, SQLite).
+Closing the app mid-QA loses nothing; reopening the same PDF offers to
+resume (page count + reviewed count shown) or start fresh. A crash or
+cancel mid-batch keeps every completed page. Delete the `.p2x` file to
+forget a session entirely.
+
+**Export options dialog** (on Export…): sheet layout (per page /
+merged by document-type label), include or omit the hidden raw-OCR
+audit columns, and *export only reviewed pages* — the clean path for
+partial deliveries from a long QA pass.
+
 ### Headless CLI
 
 ```bash
@@ -89,8 +102,16 @@ python -m app convert statement.pdf -o out.xlsx \
     --rotation 270          `# force a rotation instead of auto-detect` \
     --dpi 300 \
     --engine rapidocr \
-    --layout sheet_per_page  # or merged_by_label
+    --layout sheet_per_page `# or merged_by_label` \
+    --no-session             # skip writing statement.pdf.p2x
+
+# Re-export a saved session (no OCR) — e.g. after reviewing in the GUI
+python -m app export statement.pdf -o out.xlsx --reviewed-only
 ```
+
+`convert` writes the session file page by page, so you can OCR a
+150-page file headless (even overnight), then open the same PDF in the
+GUI, resume, review, and export — no second OCR run.
 
 `python -m app` with no arguments will launch the GUI from milestone 2.
 

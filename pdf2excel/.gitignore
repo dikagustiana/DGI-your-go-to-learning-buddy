@@ -4,6 +4,9 @@ __pycache__/
 venv/
 .pytest_cache/
 *.xlsx
+*.p2x
+*.p2x-wal
+*.p2x-shm
 sample_scanned.pdf
 sample.pdf
 dist/
