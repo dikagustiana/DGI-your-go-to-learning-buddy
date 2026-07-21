@@ -36,17 +36,30 @@ Windows installer" yang hijau → bagian **Artifacts** → unduh
 
 ---
 
-## Cara B — Build manual di PC Windows
+## Cara B — Build lokal di PC Windows (tanpa GitHub Actions, gratis)
 
 Prasyarat (sekali saja):
 
 * Windows 10/11 64-bit
 * Python 3.11+ — https://www.python.org/downloads/ (centang **Add
   Python to PATH**)
-* Git — https://git-scm.com/download/win
 * Inno Setup 6.5+ — https://jrsoftware.org/isdl.php
+* Kode sumbernya — clone dengan Git, **atau tanpa Git sama sekali**:
+  buka halaman repo di GitHub → pilih branch
+  `claude/pdf-to-excel-ocr-app-8079cd` → **Code → Download ZIP** →
+  ekstrak.
 
-Langkah:
+### Cara paling mudah: dobel-klik `build-installer.bat`
+
+Di dalam folder `pdf2excel` ada **`build-installer.bat`**. Dobel-klik
+file itu — script akan memeriksa Python & Inno Setup, menyiapkan
+lingkungan, mem-freeze aplikasi, **menguji hasilnya dengan OCR
+sungguhan**, lalu membungkus installer. Kalau semua beres, di akhir
+tertulis lokasi `installer\Output\PDF-ke-Excel-Setup.exe`. Build
+pertama ±10–20 menit (unduh dependensi); build berikutnya jauh lebih
+cepat.
+
+### Atau manual, langkah demi langkah:
 
 ```bat
 git clone https://github.com/dikagustiana/DGI-your-go-to-learning-buddy.git
