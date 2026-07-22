@@ -35,6 +35,8 @@ from PySide6.QtWidgets import (
 
 from app.config import PipelineConfig
 from app.gui.job_coordinator import JobCoordinator
+from app.gui.keep_awake import KeepAwake
+from app.gui.progress_eta import ProgressEstimator
 from app.gui.review_view import ReviewView
 from app.pipeline import pdf_loader
 from app.pipeline.engines import ENGINES, available_engines
@@ -132,6 +134,9 @@ class SimpleMainWindow(QMainWindow):
         self._jobs.page_done.connect(self._on_page_done)
         self._jobs.batch_finished.connect(self._on_finished)
         self._jobs.failed.connect(self._on_failed)
+        self._keep_awake = KeepAwake()
+        self._estimator: ProgressEstimator | None = None
+        self._batch_pages: list[int] = []
 
         # nilai "Pengaturan lanjutan" (default aman; tak pernah tampil
         # di alur utama)
@@ -372,6 +377,12 @@ class SimpleMainWindow(QMainWindow):
         if not self._jobs.start_batch(self._pdf_path, self._config(), missing):
             return
 
+        import time
+        self._batch_pages = missing
+        self._estimator = ProgressEstimator(total=len(missing),
+                                            start_time=time.monotonic())
+        self._keep_awake.start()   # don't let Windows sleep mid-batch
+
         self.open_btn.setEnabled(False)
         self.convert_btn.setEnabled(False)
         self.settings_btn.setEnabled(False)
@@ -400,12 +411,17 @@ class SimpleMainWindow(QMainWindow):
         return dataclasses.replace(self._adv)
 
     def _on_progress(self, done: int, total: int, _msg: str) -> None:
+        import time
         self.progress.setMaximum(total)
         self.progress.setValue(done)
-        if done < total:
-            self.status_label.setText(
-                f"Sedang memproses halaman {done + 1} dari {total}… "
-                f"Mohon tunggu, ya.")
+        if self._estimator is None or done >= total:
+            return
+        self._estimator.tick(time.monotonic(), done)
+        # The real PDF page number (the batch may be a subset on resume).
+        current_page = (self._batch_pages[done]
+                        if done < len(self._batch_pages) else None)
+        self.status_label.setText(
+            self._estimator.status(time.monotonic(), current_page))
 
     def _note_persist_failure(self, exc: Exception) -> None:
         """A session save failed: never claim progress is safe."""
@@ -441,6 +457,8 @@ class SimpleMainWindow(QMainWindow):
         _error_box(self, "Ada kendala", message)
 
     def _release_controls(self) -> None:
+        self._keep_awake.stop()    # always release the wake request
+        self._estimator = None
         self.open_btn.setEnabled(True)
         self.settings_btn.setEnabled(True)
         self.progress.setVisible(False)

@@ -20,10 +20,10 @@ single page at the chosen rotation.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-    QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSlider, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.config import PipelineConfig
@@ -53,6 +53,9 @@ class ReviewView(QWidget):
         self._threshold = PipelineConfig().low_confidence_threshold
         from app.pipeline.models import local_reviewer
         self._reviewer = local_reviewer()
+        self._highlight_bbox: tuple[float, float, float, float] | None = None
+        # (row, col, previous ocr_original/corrected snapshot) for undo
+        self._undo: tuple[int, int, dict] | None = None
         self._build_ui()
         self.set_page(None, None, None)
 
@@ -85,15 +88,37 @@ class ReviewView(QWidget):
             "Centang setelah tabel dicocokkan dengan gambar halamannya.")
         self.reviewed_check.toggled.connect(self._on_reviewed_toggled)
 
+        self.next_issue_btn = QPushButton("Masalah berikutnya")
+        self.next_issue_btn.setToolTip(
+            "Loncat ke sel berikutnya yang perlu dicek (kuning/merah).")
+        self.next_issue_btn.clicked.connect(self.goto_next_issue)
+
+        self.undo_btn = QPushButton("Batalkan koreksi terakhir")
+        self.undo_btn.clicked.connect(self.undo_last_edit)
+        self.undo_btn.setEnabled(False)
+
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Putar halaman:"))
         controls.addWidget(self.rotation_combo)
         controls.addWidget(self.reocr_btn)
-        controls.addSpacing(24)
+        controls.addSpacing(16)
         controls.addWidget(QLabel("Jenis dokumen:"))
         controls.addWidget(self.label_combo)
+        controls.addWidget(self.next_issue_btn)
+        controls.addWidget(self.undo_btn)
         controls.addStretch(1)
         controls.addWidget(self.reviewed_check)
+
+        # Zoom control for the page image (reduced-eyesight friendly).
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(50, 300)   # percent of fit-to-pane
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedWidth(160)
+        self.zoom_slider.valueChanged.connect(lambda _v: self._render_image())
+        zoom_row = QHBoxLayout()
+        zoom_row.addWidget(QLabel("Perbesar gambar:"))
+        zoom_row.addWidget(self.zoom_slider)
+        zoom_row.addStretch(1)
 
         # Stale-grid banner (hidden unless rotation differs from the grid's)
         self.stale_banner = QLabel()
@@ -101,7 +126,7 @@ class ReviewView(QWidget):
             "background:#FFF3CD; padding:4px; border:1px solid #E0C060;")
         self.stale_banner.setVisible(False)
 
-        # Image side
+        # Image side (zoomable, scrollable; clicked cell draws a box here)
         self.image_label = QLabel("Belum ada halaman dipilih.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_scroll = QScrollArea()
@@ -111,17 +136,26 @@ class ReviewView(QWidget):
         # Table side
         self.table = QTableWidget()
         self.table.itemChanged.connect(self._on_item_changed)
+        self.table.currentCellChanged.connect(self._on_current_cell_changed)
 
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(self.image_scroll)
         split.addWidget(self.table)
         split.setSizes([520, 520])
 
+        legend = QLabel(
+            "Keterangan warna: kuning = kurang yakin · merah = perlu "
+            "dicek · hijau = sudah dikoreksi · abu-abu = OCR asli hilang.")
+        legend.setWordWrap(True)
+        legend.setStyleSheet("color:#45505c;")
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.addLayout(controls)
+        lay.addLayout(zoom_row)
         lay.addWidget(self.stale_banner)
         lay.addWidget(split, 1)
+        lay.addWidget(legend)
 
     # ------------------------------------------------------------- state
 
@@ -145,12 +179,18 @@ class ReviewView(QWidget):
             self._page_number = page_number
             self._result = result
 
+            self._highlight_bbox = None
+            self._undo = None
+
             has_page = pdf_path is not None and page_number is not None
+            usable = has_page and result is not None and not result.error
             for w in (self.rotation_combo, self.reocr_btn, self.label_combo,
-                      self.reviewed_check, self.table):
-                w.setEnabled(has_page and result is not None and not result.error)
+                      self.reviewed_check, self.table, self.next_issue_btn,
+                      self.zoom_slider):
+                w.setEnabled(usable)
             self.rotation_combo.setEnabled(has_page)
             self.reocr_btn.setEnabled(has_page)
+            self.undo_btn.setEnabled(False)
 
             rot = result.rotation_applied if result else 0
             self.rotation_combo.setCurrentText(str(rot % 360))
@@ -189,12 +229,93 @@ class ReviewView(QWidget):
             if rot:
                 image = orientation.rotate_image(image, rot)
             pixmap = ndarray_to_pixmap(image)
+
+            # Draw the selected cell's source box (bbox is in the
+            # extraction-DPI space of the un-scaled, rotation-applied
+            # image; scale to preview DPI). Only meaningful when the
+            # displayed rotation matches the grid's.
+            src_dpi = self._result.dpi if self._result else 0
+            if (self._highlight_bbox and src_dpi
+                    and rot == (self._result.rotation_applied % 360)):
+                scale = PREVIEW_DPI / src_dpi
+                x0, y0, x1, y1 = (v * scale for v in self._highlight_bbox)
+                painter = QPainter(pixmap)
+                pen = QPen(QColor("#0b5cad"))
+                pen.setWidth(3)
+                painter.setPen(pen)
+                painter.drawRect(int(x0), int(y0),
+                                 int(x1 - x0), int(y1 - y0))
+                painter.end()
+
+            zoom = self.zoom_slider.value() / 100.0
+            target = self.image_scroll.viewport().size() * 0.98 * zoom
             self.image_label.setPixmap(pixmap.scaled(
-                self.image_scroll.viewport().size() * 0.98,
-                Qt.AspectRatioMode.KeepAspectRatio,
+                target, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
         except Exception as exc:
             self.image_label.setText(f"Gambar tidak bisa ditampilkan: {exc}")
+
+    def _on_current_cell_changed(self, row: int, col: int, *_a) -> None:
+        """Highlight the source region of the selected cell on the image."""
+        if not self._result or row < 0 or col < 0:
+            self._highlight_bbox = None
+            return
+        cell = None
+        if row < len(self._result.grid) and col < len(self._result.grid[row]):
+            cell = self._result.grid[row][col]
+        self._highlight_bbox = cell.bbox if cell else None
+        self._render_image()
+
+    # ----------------------------------------- issue navigation / undo
+
+    def _issue_positions(self) -> list[tuple[int, int]]:
+        """(row, col) of every cell worth a human look, in reading order."""
+        if not self._result:
+            return []
+        anomaly_cells = self._anomaly_cells()
+        out: list[tuple[int, int]] = []
+        for r, row in enumerate(self._result.grid):
+            for c, cell in enumerate(row):
+                if cell is None or cell.edited:
+                    continue
+                if ((r, c) in anomaly_cells
+                        or cell.confidence < self._threshold
+                        or cell.legacy_audit_incomplete):
+                    out.append((r, c))
+        return out
+
+    def goto_next_issue(self) -> None:
+        issues = self._issue_positions()
+        if not issues:
+            self.stale_banner.setText(
+                "✓ Tidak ada lagi sel yang perlu dicek di halaman ini.")
+            self.stale_banner.setVisible(True)
+            return
+        cur = (self.table.currentRow(), self.table.currentColumn())
+        nxt = next((p for p in issues if p > cur), issues[0])
+        self.table.setCurrentCell(*nxt)
+        self.table.scrollToItem(self.table.item(*nxt))
+
+    def undo_last_edit(self) -> None:
+        if not self._undo or not self._result:
+            return
+        r, c, snap = self._undo
+        if r < len(self._result.grid) and c < len(self._result.grid[r]):
+            cell = self._result.grid[r][c]
+            if cell is not None:
+                cell.corrected_text = snap["corrected_text"]
+                cell.edited = snap["edited"]
+                cell.edited_at = snap["edited_at"]
+                cell.reviewer = snap["reviewer"]
+                from app.locale_id import parse_id_number
+                p = parse_id_number(cell.effective_text)
+                cell.value, cell.parse_kind, cell.parse_reason = (
+                    p.value, p.kind, p.reason)
+        self._undo = None
+        self.undo_btn.setEnabled(False)
+        self._recompute_anomalies()
+        self._populate_table()
+        self.result_changed.emit(self._result)
 
     # ----------------------------------------------------------- table
 
@@ -271,13 +392,21 @@ class ReviewView(QWidget):
             if not text:
                 return
             # Human typed into an empty slot: no OCR source exists.
+            self._undo = (r, c, {"corrected_text": None, "edited": False,
+                                 "edited_at": None, "reviewer": ""})
             cell = Cell.human_created(text, reviewer=self._reviewer)
             row[c] = cell
         else:
             if text == cell.effective_text:
                 return
-            # Records the correction WITHOUT overwriting ocr_original.
+            # Snapshot for undo, then record the correction WITHOUT
+            # overwriting ocr_original.
+            self._undo = (r, c, {"corrected_text": cell.corrected_text,
+                                 "edited": cell.edited,
+                                 "edited_at": cell.edited_at,
+                                 "reviewer": cell.reviewer})
             cell.apply_correction(text, reviewer=self._reviewer)
+        self.undo_btn.setEnabled(True)
 
         self._recompute_anomalies()
         self._populating = True

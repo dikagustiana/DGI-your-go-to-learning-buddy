@@ -139,3 +139,45 @@ def test_export_colors_edited_over_lowconf(tmp_path):
     fills = {c.coordinate: c.fill.start_color.rgb for row in ws.iter_rows()
              for c in row if c.value is not None}
     assert fills["B1"] == "00D4EDDA"            # green (edited) wins over amber
+
+
+def test_next_issue_navigation(view):
+    from app.pipeline.models import Cell, PageResult
+    result = PageResult(
+        page_number=1, rotation_applied=0, rotation_source="auto",
+        grid=[
+            [Cell.from_text("OK", 0.99), Cell.from_text("bad1", 0.40)],
+            [Cell.from_text("bad2", 0.30), Cell.from_text("OK2", 0.99)],
+        ])
+    view.set_page(None, 1, result)
+    view.goto_next_issue()
+    assert (view.table.currentRow(), view.table.currentColumn()) == (0, 1)
+    view.goto_next_issue()
+    assert (view.table.currentRow(), view.table.currentColumn()) == (1, 0)
+    # wraps back to the first issue
+    view.goto_next_issue()
+    assert (view.table.currentRow(), view.table.currentColumn()) == (0, 1)
+
+
+def test_undo_restores_ocr_original(view):
+    result = make_result()
+    view.set_page(None, 1, result)
+    assert not view.undo_btn.isEnabled()
+    view.table.item(0, 1).setText("192.240")
+    cell = result.grid[0][1]
+    assert cell.corrected_text == "192.240" and view.undo_btn.isEnabled()
+    view.undo_last_edit()
+    assert cell.corrected_text is None       # correction removed
+    assert cell.ocr_original == "92.240"     # original intact
+    assert not cell.edited
+    assert not view.undo_btn.isEnabled()
+
+
+def test_current_cell_sets_highlight_bbox(view):
+    from app.pipeline.models import Cell, PageResult
+    result = PageResult(
+        page_number=1, rotation_applied=0, rotation_source="auto", dpi=300,
+        grid=[[Cell.from_text("x", 0.9, bbox=(10, 20, 100, 60))]])
+    view.set_page(None, 1, result)
+    view.table.setCurrentCell(0, 0)
+    assert view._highlight_bbox == (10, 20, 100, 60)
