@@ -118,6 +118,7 @@ class SimpleMainWindow(QMainWindow):
 
         self._output_dir = output_dir or QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DocumentsLocation) or os.getcwd()
+        self._warned_sync = False    # only warn about a sync folder once
 
         self._pdf_path: str | None = None
         self._pdf_info: pdf_loader.PdfInfo | None = None
@@ -213,10 +214,17 @@ class SimpleMainWindow(QMainWindow):
 
         lay.addStretch(1)
 
+        bottom = QHBoxLayout()
+        self.wipe_btn = QPushButton("Hapus data kerja")
+        self.wipe_btn.setObjectName("link")
+        self.wipe_btn.clicked.connect(self.wipe_working_data)
+        bottom.addWidget(self.wipe_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        bottom.addStretch(1)
         self.settings_btn = QPushButton("Pengaturan lanjutan")
         self.settings_btn.setObjectName("link")
         self.settings_btn.clicked.connect(self.open_settings)
-        lay.addWidget(self.settings_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        bottom.addWidget(self.settings_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        lay.addLayout(bottom)
 
         self.setCentralWidget(root)
 
@@ -262,10 +270,29 @@ class SimpleMainWindow(QMainWindow):
         self.status_label.clear()
 
         self._open_session(path)
+        self._warn_if_sync_folder()
 
         name = os.path.basename(path)
         self.file_label.setText(f"✓  {name} — {info.n_pages} halaman")
         self._reset_after_file()
+
+    def _warn_if_sync_folder(self) -> None:
+        """Confidential output must not land in a cloud-synced folder
+        without the user knowing — that copies it off the machine."""
+        if self._warned_sync:
+            return
+        from app.gui.paths import sync_service_for
+        service = sync_service_for(self._output_dir)
+        if not service:
+            return
+        self._warned_sync = True
+        QMessageBox.warning(
+            self, "Folder tersambung internet",
+            f"File Excel akan disimpan ke folder yang otomatis disalin ke "
+            f"{service} (internet). Untuk dokumen keuangan rahasia, ini "
+            f"berarti datanya ikut terkirim ke {service}.\n\n"
+            "Kalau tidak mau begitu, minta pendamping teknis mengubah "
+            "folder penyimpanan lewat “Pengaturan lanjutan”.")
 
     def _open_session(self, path: str) -> None:
         try:
@@ -501,9 +528,44 @@ class SimpleMainWindow(QMainWindow):
     # ---------------------------------------------------- pengaturan
 
     def open_settings(self) -> None:
-        dialog = AdvancedSettingsDialog(self, self._adv)
+        dialog = AdvancedSettingsDialog(self, self._adv, self._output_dir)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._adv = dialog.result_config()
+            new_dir = dialog.output_dir()
+            if new_dir and new_dir != self._output_dir:
+                self._output_dir = new_dir
+                self._warned_sync = False
+                self._warn_if_sync_folder()
+
+    def wipe_working_data(self) -> None:
+        """Delete the working session file for the current PDF."""
+        if not self._pdf_path:
+            _error_box(self, "Belum ada file",
+                       "Buka dulu file PDF-nya sebelum menghapus data kerja.")
+            return
+        answer = QMessageBox.question(
+            self, "Hapus data kerja?",
+            "Ini menghapus catatan kerja sementara (hasil baca + koreksi) "
+            "untuk file ini dari komputer. File Excel yang sudah tersimpan "
+            "TIDAK ikut terhapus.\n\nCatatan: pada hard disk SSD, "
+            "penghapusan tidak bisa dijamin 100% permanen secara "
+            "forensik.\n\nLanjut hapus?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._jobs.shutdown()
+        self._close_store()
+        try:
+            removed = SessionStore.delete_files(self._pdf_path)
+        except Exception as exc:
+            _error_box(self, "Gagal menghapus", exc)
+            return
+        self._results = {}
+        self._open_session(self._pdf_path)   # re-create a fresh empty store
+        self._reset_after_file()
+        self.status_label.setText(
+            f"Data kerja dihapus ({len(removed)} berkas).")
 
     # --------------------------------------------------------- events
 
@@ -661,10 +723,12 @@ class ReviewDialog(QDialog):
 class AdvancedSettingsDialog(QDialog):
     """Pengaturan teknis — untuk pendamping/teknisi, bukan alur utama."""
 
-    def __init__(self, parent, current: PipelineConfig):
+    def __init__(self, parent, current: PipelineConfig,
+                 output_dir: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Pengaturan lanjutan")
         self.setStyleSheet("QWidget { font-size: 11pt; }")
+        self._output_dir = output_dir
 
         self.engine_combo = QComboBox()
         avail = available_engines()
@@ -698,6 +762,17 @@ class AdvancedSettingsDialog(QDialog):
             "sheet_per_page: satu lembar Excel per halaman PDF.\n"
             "merged_by_label: halaman ber-jenis dokumen sama digabung.")
 
+        # Output folder chooser (confidential-data control).
+        self.folder_label = QLabel(self._output_dir or "(bawaan: Dokumen)")
+        self.folder_label.setWordWrap(True)
+        folder_btn = QPushButton("Pilih folder…")
+        folder_btn.clicked.connect(self._choose_folder)
+        folder_row = QHBoxLayout()
+        folder_row.addWidget(self.folder_label, 1)
+        folder_row.addWidget(folder_btn)
+        folder_widget = QWidget()
+        folder_widget.setLayout(folder_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel)
@@ -709,7 +784,18 @@ class AdvancedSettingsDialog(QDialog):
         form.addRow("Ketajaman (DPI):", self.dpi_spin)
         form.addRow("Rotasi halaman:", self.rotation_combo)
         form.addRow("Tata letak Excel:", self.layout_combo)
+        form.addRow("Folder penyimpanan:", folder_widget)
         form.addRow(buttons)
+
+    def _choose_folder(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Pilih folder penyimpanan", self._output_dir)
+        if chosen:
+            self._output_dir = chosen
+            self.folder_label.setText(chosen)
+
+    def output_dir(self) -> str:
+        return self._output_dir
 
     def result_config(self) -> PipelineConfig:
         rot = self.rotation_combo.currentText()

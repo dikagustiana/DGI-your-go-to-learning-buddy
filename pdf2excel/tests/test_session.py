@@ -113,3 +113,44 @@ def test_newer_schema_rejected(tmp_path):
     s.close()
     with pytest.raises(SessionError):
         SessionStore(path)
+
+
+def test_secure_delete_enabled(store):
+    val = store._conn.execute("PRAGMA secure_delete").fetchone()[0]
+    assert val == 1                       # deleted data is zeroed
+
+
+def test_close_checkpoints_wal(tmp_path):
+    path = str(tmp_path / "doc.pdf.p2x")
+    s = SessionStore(path)
+    s.save_page(make_result())
+    s.close()
+    # After a clean close the WAL sidecar must not still hold page data
+    # (checkpoint TRUNCATE); it is absent or empty.
+    import os
+    wal = path + "-wal"
+    assert (not os.path.exists(wal)) or os.path.getsize(wal) == 0
+
+
+def test_delete_files_removes_sidecars(tmp_path):
+    pdf = str(tmp_path / "doc.pdf")
+    open(pdf, "wb").close()
+    s = SessionStore.for_pdf(pdf)
+    s.save_page(make_result())
+    s.close()
+    removed = SessionStore.delete_files(pdf)
+    assert any(r.endswith(".p2x") for r in removed)
+    assert not SessionStore.exists_for_pdf(pdf)
+
+
+def test_fingerprint_match_and_mismatch(tmp_path):
+    pdf = str(tmp_path / "doc.pdf")
+    with open(pdf, "wb") as f:
+        f.write(b"%PDF-1.4 original content")
+    s = SessionStore.for_pdf(pdf)
+    s.bind_pdf(pdf)
+    assert s.fingerprint_status(pdf) == "match"
+    with open(pdf, "ab") as f:
+        f.write(b" tampered")
+    assert s.fingerprint_status(pdf) == "mismatch"
+    s.close()

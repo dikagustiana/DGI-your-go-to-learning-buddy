@@ -66,27 +66,47 @@ class PaddleStructureEngine(OCREngine):
     def is_available(cls) -> bool:
         # find_spec, not import: importing paddleocr takes seconds and
         # probes the network for model hosts — far too heavy for a GUI
-        # startup check. A broken install surfaces on first use instead,
-        # with the engine's own error message.
+        # startup check. ALL THREE packages are required: plain paddleocr
+        # cannot build the PP-StructureV3 pipeline without paddlex.
         try:
             from importlib.util import find_spec
-            return (find_spec("paddle") is not None
-                    and find_spec("paddleocr") is not None)
+            return all(find_spec(m) is not None
+                       for m in ("paddle", "paddleocr", "paddlex"))
         except Exception:
             return False
 
     @classmethod
+    def models_present(cls) -> bool:
+        """True when PP-StructureV3's models are already cached locally.
+
+        Offline-first: the engine must NOT be presented as usable if
+        selecting it would trigger a first-run download. Checks the
+        PaddleX official-models cache for the pipeline's core models.
+        """
+        import pathlib
+        cache = pathlib.Path(os.path.expanduser("~/.paddlex/official_models"))
+        required = ["PP-LCNet_x1_0_doc_ori", "PP-OCRv5_server_det",
+                    "PP-OCRv5_server_rec"]
+        return cache.is_dir() and all((cache / m).is_dir() for m in required)
+
+    @classmethod
     def unavailable_hint(cls) -> str:
-        return ('pip install paddlepaddle paddleocr "paddlex[ocr]"  '
-                "(large download; models fetched on first run)")
+        return ('pip install paddlepaddle paddleocr "paddlex[ocr]" lalu '
+                "sekali jalankan dengan internet untuk mengunduh model "
+                "(setelah itu offline). Mesin ini opsional.")
 
     def _require(self) -> None:
         if not self.is_available():
             raise EngineUnavailableError(self.unavailable_hint())
-        # Skip paddlex's model-host connectivity probe: this app is
-        # offline-first and the models are cached after first run.
-        # (Only affects which mirror is picked at download time.)
+        # Never let the pipeline reach out at runtime — offline-first.
         os.environ.setdefault("DISABLE_MODEL_SOURCE_CHECK", "True")
+        # Fail closed BEFORE any rasterization/OCR if the model pack is
+        # incomplete, rather than silently attempting a download.
+        if not self.models_present():
+            raise EngineUnavailableError(
+                "Model PP-StructureV3 belum lengkap di komputer ini. "
+                "Aplikasi tidak akan mengunduh otomatis (data rahasia, "
+                "harus offline). " + self.unavailable_hint())
 
     # ---------------------------------------------------------- models
 

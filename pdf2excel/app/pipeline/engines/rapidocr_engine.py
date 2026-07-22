@@ -29,25 +29,29 @@ class RapidOCREngine(OCREngine):
     _lock = threading.Lock()
 
     @classmethod
-    def models_present(cls) -> bool:
-        """Verify the bundled ONNX models actually resolve on disk.
+    def models_present(cls, deep: bool = False) -> bool:
+        """True when the bundled ONNX models match the manifest.
 
-        The models ship as data files inside the rapidocr_onnxruntime
-        package. In a PyInstaller one-folder build they are collected
-        under _internal/rapidocr_onnxruntime/models — the package's
-        __file__ points there too, so this same check validates both
-        the source install and the frozen app. Detection, angle
-        classification and recognition each need one model; anything
-        less means a broken bundle, and the app must fail loudly at
-        startup rather than attempt a download (offline-first promise).
+        Verifies by NAME + size (and SHA-256 when ``deep``), not a mere
+        file count — a swapped or truncated model must fail closed, never
+        trigger a download (offline-first promise). Works identically for
+        a source install and the PyInstaller _internal layout because the
+        package __file__ points at the collected models either way.
         """
         try:
-            import pathlib
-            import rapidocr_onnxruntime
-            pkg_dir = pathlib.Path(rapidocr_onnxruntime.__file__).parent
-            return len(list(pkg_dir.glob("**/*.onnx"))) >= 3
+            from app.pipeline.engines.rapidocr_models import verify_models
+            return verify_models(deep=deep).ok
         except Exception:
             return False
+
+    @classmethod
+    def model_check_detail(cls) -> str:
+        """Human-readable reason the models failed verification (deep)."""
+        try:
+            from app.pipeline.engines.rapidocr_models import verify_models
+            return verify_models(deep=True).detail
+        except Exception as exc:
+            return str(exc)
 
     @classmethod
     def is_available(cls) -> bool:
@@ -55,15 +59,29 @@ class RapidOCREngine(OCREngine):
             import rapidocr_onnxruntime  # noqa: F401
         except ImportError:
             return False
-        return cls.models_present()
+        # Fast presence+size probe for the frequent availability check;
+        # the deep SHA-256 verification runs once on first real use.
+        return cls.models_present(deep=False)
 
     @classmethod
     def unavailable_hint(cls) -> str:
         return "pip install rapidocr-onnxruntime"
 
+    _verified = False
+
     def _get_ocr(self):
         with RapidOCREngine._lock:
             if RapidOCREngine._instance is None:
+                # Deep-verify once before the models are ever loaded: a
+                # tampered/truncated model fails closed here rather than
+                # producing silently wrong OCR (or reaching the network).
+                if not RapidOCREngine._verified:
+                    from app.pipeline.engines.base import EngineUnavailableError
+                    from app.pipeline.engines.rapidocr_models import verify_models
+                    check = verify_models(deep=True)
+                    if not check.ok:
+                        raise EngineUnavailableError(check.detail)
+                    RapidOCREngine._verified = True
                 from rapidocr_onnxruntime import RapidOCR
                 RapidOCREngine._instance = RapidOCR()
             return RapidOCREngine._instance

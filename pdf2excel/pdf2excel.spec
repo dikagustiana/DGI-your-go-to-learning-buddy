@@ -31,6 +31,11 @@ from PyInstaller.utils.hooks import collect_data_files
 # files resolve on disk (RapidOCREngine.models_present), so a build
 # that loses them fails visibly instead of trying to download.
 datas = collect_data_files("rapidocr_onnxruntime")
+# The model manifest (app/pipeline/engines/rapidocr_models.json) is a
+# data file — PyInstaller collects .py but not .json, so add it
+# explicitly or the fail-closed model check has nothing to verify against.
+datas += [("app/pipeline/engines/rapidocr_models.json",
+           "app/pipeline/engines")]
 
 # Windows executables get the app icon; other platforms ignore it.
 ICON = "assets/icon.ico" if sys.platform == "win32" else None
