@@ -42,6 +42,10 @@ jobs:
   build-installer:
     needs: test
     runs-on: windows-latest
+    env:
+      # Exposed so the 'if' below can detect whether signing is configured
+      # (secrets can't be referenced directly in step 'if' conditions).
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
     defaults:
       run:
         working-directory: pdf2excel
@@ -71,13 +75,37 @@ jobs:
           }
       - name: Compile installer (Inno Setup)
         run: |
+          python installer\gen_version.py
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
           Get-ChildItem installer\Output
+      - name: Sign installer (only if a signing certificate is configured)
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          # Sign both the inner EXEs and the installer. Dev builds
+          # without the secret skip this and stay clearly UNSIGNED.
+          [IO.File]::WriteAllBytes("cert.pfx",
+            [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe"
+          foreach ($f in @("dist\pdf2excel\pdf2excel.exe",
+                           "dist\pdf2excel\pdf2excel-cli.exe",
+                           (Get-ChildItem installer\Output\*.exe).FullName)) {
+            & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /f cert.pfx /p $env:SIGN_PFX_PASSWORD $f
+          }
+          Remove-Item cert.pfx
+      - name: Generate SBOM + checksums
+        run: python installer\gen_sbom.py (Get-ChildItem installer\Output\*.exe).FullName
       - name: Upload Setup.exe artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDF-ke-Excel-Setup
-          path: pdf2excel/installer/Output/*.exe
+          path: |
+            pdf2excel/installer/Output/*.exe
+            pdf2excel/installer/Output/sbom.json
+            pdf2excel/installer/Output/SHA256SUMS.txt
           if-no-files-found: error
 
   verify-clean:

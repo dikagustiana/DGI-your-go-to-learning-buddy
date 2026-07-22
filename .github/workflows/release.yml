@@ -1,0 +1,77 @@
+# Release build: on a v* tag, build the installer, REQUIRE signing, and
+# publish to GitHub Releases with checksums + SBOM.
+#
+# Unlike the branch CI (which allows unsigned dev artifacts), a tagged
+# production release FAILS if the signing certificate is not configured
+# — an unsigned build must never masquerade as a release.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+    defaults:
+      run:
+        working-directory: pdf2excel
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Require a signing certificate for a production release
+        run: |
+          if ([string]::IsNullOrEmpty($env:SIGN_PFX_BASE64)) {
+            throw "Production release requires the SIGN_PFX_BASE64 secret. " +
+                  "Configure code signing, or build a dev artifact via the " +
+                  "branch CI (which is clearly labeled UNSIGNED)."
+          }
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Freeze + compile installer
+        run: |
+          python installer\gen_version.py
+          pyinstaller pdf2excel.spec --noconfirm
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+
+      - name: Sign inner EXEs + installer
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx",
+            [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe"
+          foreach ($f in @("dist\pdf2excel\pdf2excel.exe",
+                           "dist\pdf2excel\pdf2excel-cli.exe",
+                           (Get-ChildItem installer\Output\*.exe).FullName)) {
+            & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /f cert.pfx /p $env:SIGN_PFX_PASSWORD $f
+          }
+          Remove-Item cert.pfx
+
+      - name: SBOM + checksums
+        run: python installer\gen_sbom.py (Get-ChildItem installer\Output\*.exe).FullName
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            pdf2excel/installer/Output/*.exe
+            pdf2excel/installer/Output/sbom.json
+            pdf2excel/installer/Output/SHA256SUMS.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -120,6 +120,37 @@ Lakukan sekali per rilis, di PC Windows yang **tidak punya Python**
 
 ---
 
+## Versi, SBOM, tanda tangan, dan rilis
+
+* **Versi tunggal**: ubah `app/__init__.py` (`__version__`) saja.
+  `installer/gen_version.py` menuliskannya ke `installer/version.iss`
+  (di-`#include` oleh `setup.iss`) dan aplikasi menampilkannya di judul
+  jendela. Build lokal & CI menjalankan `gen_version.py` otomatis.
+* **AppMutex**: aplikasi memegang mutex Windows bernama
+  `PDFkeExcel_SingleInstance_Mutex`; installer (`AppMutex`) menolak
+  memasang/meng-upgrade selagi aplikasi berjalan.
+* **SBOM + checksum**: `installer/gen_sbom.py` menghasilkan `sbom.json`
+  (daftar komponen + hash model OCR) dan `SHA256SUMS.txt` di samping
+  installer. CI mengunggahnya sebagai artifact.
+* **Tanda tangan (opsional di branch, wajib di rilis)**: bila secret
+  `SIGN_PFX_BASE64` + `SIGN_PFX_PASSWORD` disetel, CI menandatangani
+  kedua EXE dan installer. Build branch tanpa secret tetap jalan tapi
+  **UNSIGNED**. Workflow `release.yml` (tag `v*`) **gagal** bila secret
+  tidak ada — rilis produksi tidak boleh unsigned.
+* **Rilis**: dorong tag `vX.Y.Z` → `release.yml` build, tandatangani,
+  lalu unggah installer + `SHA256SUMS.txt` + `sbom.json` ke GitHub
+  Releases (bukan sekadar artifact CI sementara).
+
+## Lisensi (BELUM diputuskan — keputusan legal)
+
+* Repo ini **belum punya berkas LICENSE**. Lisensi proyek tidak dipilih
+  sepihak di sini; tetapkan bersama pemilik proyek sebelum distribusi.
+* `THIRD_PARTY_NOTICES.md` mencantumkan komponen pihak ketiga. **Dua
+  blocker legal** untuk distribusi ke pihak luar: **PyMuPDF (AGPL-3.0 /
+  komersial)** dan **PySide6 (LGPL-3.0)**. Selesaikan dulu (lisensi
+  komersial atau ganti backend/patuhi LGPL) sebelum membagikan
+  installer keluar. Untuk pemakaian internal, tidak menghalangi.
+
 ## Menghilangkan peringatan SmartScreen ("unknown publisher")
 
 `Setup.exe` yang tidak ditandatangani akan memunculkan peringatan biru

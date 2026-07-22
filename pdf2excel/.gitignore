@@ -12,3 +12,8 @@ sample.pdf
 dist/
 build/
 installer/Output/
+
+installer/version.iss
+installer/Output/
+sbom.json
+SHA256SUMS.txt

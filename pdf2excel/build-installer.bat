@@ -59,7 +59,9 @@ echo Uji OCR lulus.
 
 echo.
 echo === [6/6] Membungkus installer (Inno Setup)...
+python installer\gen_version.py || goto :fail
 "%ISCC%" installer\setup.iss || goto :fail
+python installer\gen_sbom.py installer\Output\PDF-ke-Excel-Setup.exe || goto :fail
 
 echo.
 echo ============================================================

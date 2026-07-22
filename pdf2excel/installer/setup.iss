@@ -12,8 +12,10 @@
 ;   * clean uninstaller registered in Windows "Apps & features".
 
 #define MyAppName "PDF ke Excel"
-#define MyAppVersion "1.0.0"
 #define MyAppExeName "pdf2excel.exe"
+; MyAppVersion + MyAppMutex come from version.iss (generated from
+; app.__version__ by gen_version.py — run it before ISCC).
+#include "version.iss"
 
 [Setup]
 ; Fixed AppId so upgrades replace the same installation.
@@ -33,6 +35,9 @@ UninstallDisplayName={#MyAppName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Refuse to install/upgrade while the app is running (the app holds this
+; named mutex on Windows). Prevents replacing files in use.
+AppMutex={#MyAppMutex}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 

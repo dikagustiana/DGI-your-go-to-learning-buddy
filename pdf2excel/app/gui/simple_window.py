@@ -114,7 +114,8 @@ def _error_box(parent, title: str, exc: Exception | str, context: str = "") -> N
 class SimpleMainWindow(QMainWindow):
     def __init__(self, output_dir: str | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("PDF ke Excel")
+        from app import __version__
+        self.setWindowTitle(f"PDF ke Excel  (versi {__version__})")
         self.resize(780, 680)
         self.setStyleSheet(STYLE)
 
