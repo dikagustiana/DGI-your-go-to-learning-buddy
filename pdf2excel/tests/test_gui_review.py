@@ -61,7 +61,9 @@ def test_edit_writes_back_and_reparses(view):
     view.table.item(0, 1).setText("192.240")
 
     cell = result.grid[0][1]
-    assert cell.raw == "192.240"
+    assert cell.effective_text == "192.240"
+    assert cell.ocr_original == "92.240"     # OCR original is preserved
+    assert cell.corrected_text == "192.240"
     assert cell.value == Decimal("192240")   # re-parsed with id-ID rules
     assert cell.edited is True
     assert changed, "result_changed must fire so the session can persist"
@@ -130,11 +132,10 @@ def test_export_colors_edited_over_lowconf(tmp_path):
     from app.export.excel import export_workbook
 
     result = make_result()
-    result.grid[0][1].edited = True         # low conf (0.55) but corrected
+    result.grid[0][1].apply_correction("192.240")   # low conf but corrected
     out = tmp_path / "o.xlsx"
     export_workbook([result], str(out), PipelineConfig())
-    ws = load_workbook(str(out))["p1"]
+    ws = load_workbook(str(out))["p1"]          # grid starts at row 1 now
     fills = {c.coordinate: c.fill.start_color.rgb for row in ws.iter_rows()
              for c in row if c.value is not None}
-    # Row 1 holds the raw-column headers; the grid starts at row 2.
-    assert fills["B2"] == "00D4EDDA"         # green (edited) wins over amber
+    assert fills["B1"] == "00D4EDDA"            # green (edited) wins over amber

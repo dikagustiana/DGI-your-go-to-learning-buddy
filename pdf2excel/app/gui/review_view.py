@@ -28,12 +28,13 @@ from PySide6.QtWidgets import (
 
 from app.config import PipelineConfig
 from app.gui.qt_utils import ndarray_to_pixmap
-from app.locale_id import parse_id_number
 from app.pipeline import orientation, pdf_loader
 from app.pipeline.models import Cell, PageResult
 
 LOW_CONF_COLOR = QColor("#FFF3CD")   # amber — needs review
 EDITED_COLOR = QColor("#D4EDDA")     # green — human-corrected
+ANOMALY_COLOR = QColor("#F8D7DA")    # red — anomaly flagged
+LEGACY_COLOR = QColor("#E2E3E5")     # gray — OCR original lost (legacy)
 PREVIEW_DPI = 110
 
 
@@ -50,6 +51,8 @@ class ReviewView(QWidget):
         self._page_number: int | None = None
         self._populating = False
         self._threshold = PipelineConfig().low_confidence_threshold
+        from app.pipeline.models import local_reviewer
+        self._reviewer = local_reviewer()
         self._build_ui()
         self.set_page(None, None, None)
 
@@ -195,18 +198,37 @@ class ReviewView(QWidget):
 
     # ----------------------------------------------------------- table
 
-    def _style_item(self, item: QTableWidgetItem, cell: Cell) -> None:
+    def _anomaly_cells(self) -> set[tuple[int, int]]:
+        if not self._result:
+            return set()
+        return {(a.row, a.col) for a in self._result.anomalies
+                if a.row is not None and a.col is not None}
+
+    def _style_item(self, item: QTableWidgetItem, cell: Cell,
+                    anomaly: bool = False) -> None:
         tip = f"tingkat keyakinan {cell.confidence:.2f}"
         if cell.value is not None:
             tip += f" — terbaca sebagai angka: {cell.value}"
+        if cell.ocr_original is not None and cell.corrected_text is not None:
+            tip += f" — OCR asli: “{cell.ocr_original}”"
+        # Status is shown by BOTH background color and a text marker
+        # prefix in the tooltip, so it does not rely on color alone.
+        marker = ""
         if cell.edited:
-            tip += " — sudah dikoreksi manusia"
+            marker = "[dikoreksi] "
             item.setBackground(EDITED_COLOR)
+        elif anomaly:
+            marker = "[perlu dicek] "
+            item.setBackground(ANOMALY_COLOR)
+        elif cell.legacy_audit_incomplete:
+            marker = "[OCR asli hilang] "
+            item.setBackground(LEGACY_COLOR)
         elif cell.confidence < self._threshold:
+            marker = "[kurang yakin] "
             item.setBackground(LOW_CONF_COLOR)
         else:
             item.setBackground(QColor("transparent"))
-        item.setToolTip(tip)
+        item.setToolTip(marker + tip)
 
     def _populate_table(self) -> None:
         self._populating = True
@@ -217,15 +239,16 @@ class ReviewView(QWidget):
                 self.table.setRowCount(0)
                 self.table.setColumnCount(0)
                 return
+            anomaly_cells = self._anomaly_cells()
             n_cols = result.n_cols
             self.table.setRowCount(result.n_rows)
             self.table.setColumnCount(n_cols)
             for r, row in enumerate(result.grid):
                 for c in range(n_cols):
                     cell = row[c] if c < len(row) else None
-                    item = QTableWidgetItem(cell.raw if cell else "")
+                    item = QTableWidgetItem(cell.effective_text if cell else "")
                     if cell:
-                        self._style_item(item, cell)
+                        self._style_item(item, cell, (r, c) in anomaly_cells)
                     self.table.setItem(r, c, item)
             self.table.resizeColumnsToContents()
         finally:
@@ -247,22 +270,28 @@ class ReviewView(QWidget):
         if cell is None:
             if not text:
                 return
-            cell = Cell(raw=text, confidence=1.0,
-                        value=parse_id_number(text).value, edited=True)
+            # Human typed into an empty slot: no OCR source exists.
+            cell = Cell.human_created(text, reviewer=self._reviewer)
             row[c] = cell
         else:
-            if text == cell.raw:
+            if text == cell.effective_text:
                 return
-            cell.raw = text
-            cell.value = parse_id_number(text).value
-            cell.edited = True
+            # Records the correction WITHOUT overwriting ocr_original.
+            cell.apply_correction(text, reviewer=self._reviewer)
 
+        self._recompute_anomalies()
         self._populating = True
         try:
-            self._style_item(item, cell)
+            self._style_item(item, cell, False)
         finally:
             self._populating = False
         self.result_changed.emit(self._result)
+
+    def _recompute_anomalies(self) -> None:
+        """Edits can clear or introduce anomalies; keep them current."""
+        if self._result:
+            from app.pipeline.runner import refresh_anomalies
+            refresh_anomalies(self._result)
 
     # --------------------------------------------------------- controls
 
@@ -292,8 +321,20 @@ class ReviewView(QWidget):
     def _on_reviewed_toggled(self, checked: bool) -> None:
         if self._populating or not self._result:
             return
+        # A page whose grid is stale (rotation changed but not re-read)
+        # must not be marked reviewed — the reviewer would be signing
+        # off on a table that no longer matches the image.
+        if checked and not self.stale_banner.isHidden():
+            self._populating = True
+            self.reviewed_check.setChecked(False)
+            self._populating = False
+            self.stale_banner.setText(
+                "⚠ Baca ulang halaman ini dulu sebelum menandainya "
+                "sudah diperiksa — tabelnya belum sesuai posisi gambar.")
+            self.stale_banner.setVisible(True)
+            return
         if self._result.reviewed != checked:
-            self._result.reviewed = checked
+            self._result.set_reviewed(checked)
             self.result_changed.emit(self._result)
 
     # ----------------------------------------------------------- events

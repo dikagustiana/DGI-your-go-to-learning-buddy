@@ -118,44 +118,69 @@ def test_missing_pages_and_resume_flow(qapp, tmp_path, monkeypatch, blank_pdf):
         win.close()
 
 
-def test_finish_exports_to_documents_and_shows_buttons(
-        qapp, tmp_path, monkeypatch, blank_pdf):
+def test_unreviewed_finish_is_draft(qapp, tmp_path, monkeypatch, blank_pdf):
     win = make_window(qapp, tmp_path, monkeypatch,
                       answer=QMessageBox.StandardButton.No)
     try:
         win.load_pdf(blank_pdf)
-        # hasil disuntik seolah worker selesai
-        win._on_page_done(result_for(1))
+        win._on_page_done(result_for(1))       # not reviewed
         win._on_page_done(result_for(2))
         win._export_and_finish()
 
-        assert win._out_path is not None
-        assert os.path.exists(win._out_path)
         assert win._out_path.startswith(str(tmp_path / "Dokumen"))
-        assert win._out_path.endswith("laporan keuangan.xlsx")
-        assert "Selesai!" in win.done_label.text()
+        assert "(DRAF)" in os.path.basename(win._out_path)
+        assert "DRAF" in win.done_label.text()
+        assert "belum diperiksa" in win.done_label.text().lower()
         assert not win.open_excel_btn.isHidden()
-        assert not win.open_folder_btn.isHidden()
         assert not win.review_btn.isHidden()
 
         from openpyxl import load_workbook
         wb = load_workbook(win._out_path)
-        assert wb["p1"]["A2"].value == 192240        # angka id-ID terparse
+        assert wb["p1"]["A1"].value == 192240        # angka id-ID terparse
+        assert "Ringkasan" in wb.sheetnames
+        assert "Audit" in wb.sheetnames
+        summary = " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows()
+                           for c in row if c.value)
+        assert "DRAF" in summary
     finally:
         win.close()
 
 
-def test_failed_pages_reported_plainly(qapp, tmp_path, monkeypatch, blank_pdf):
+def test_reviewed_finish_is_final(qapp, tmp_path, monkeypatch, blank_pdf):
     win = make_window(qapp, tmp_path, monkeypatch,
                       answer=QMessageBox.StandardButton.No)
     try:
         win.load_pdf(blank_pdf)
-        win._on_page_done(result_for(1))
+        for pno in (1, 2):
+            r = result_for(pno)
+            r.set_reviewed(True)              # human signed off
+            win._on_page_done(r)
+        win._export_and_finish()
+
+        assert "(DRAF)" not in os.path.basename(win._out_path)
+        assert win._out_path.endswith("laporan keuangan.xlsx")
+        assert "FINAL" in win.done_label.text()
+    finally:
+        win.close()
+
+
+def test_failed_page_never_shows_as_success(qapp, tmp_path, monkeypatch,
+                                            blank_pdf):
+    win = make_window(qapp, tmp_path, monkeypatch,
+                      answer=QMessageBox.StandardButton.No)
+    try:
+        win.load_pdf(blank_pdf)
+        r = result_for(1)
+        r.set_reviewed(True)
+        win._on_page_done(r)
         bad = PageResult(page_number=2, rotation_applied=0,
                          rotation_source="error", error="boom")
         win._on_page_done(bad)
         win._export_and_finish()
-        assert "1 halaman tidak terbaca" in win.done_label.text()
+        # A failed page forces DRAF even though the other page is reviewed.
+        assert "(DRAF)" in os.path.basename(win._out_path)
+        assert "FINAL" not in win.done_label.text()
+        assert "gagal dibaca" in win.done_label.text()
         assert "halaman 2" in win.done_label.text()
     finally:
         win.close()

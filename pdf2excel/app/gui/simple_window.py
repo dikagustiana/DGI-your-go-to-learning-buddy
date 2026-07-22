@@ -270,10 +270,33 @@ class SimpleMainWindow(QMainWindow):
             self._store = None   # folder hanya-baca: tetap jalan, tanpa simpan
             return
         if not had:
+            self._store.bind_pdf(path)
             return
         n, _rev = self._store.summary()
         if n == 0:
+            self._store.bind_pdf(path)
             return
+
+        # Guard against resuming into the wrong document: if the PDF's
+        # fingerprint doesn't match what this session was built from, the
+        # saved pages describe a different file.
+        if self._store.fingerprint_status(path) == "mismatch":
+            answer = QMessageBox.question(
+                self, "File PDF sepertinya sudah berbeda",
+                "Ada pekerjaan tersimpan untuk nama file ini, tetapi isi "
+                "PDF-nya sekarang berbeda dari saat terakhir diproses "
+                "(mungkin file diganti atau di-scan ulang).\n\n"
+                "Mulai dari awal untuk file yang sekarang? (Pilih “No” "
+                "untuk tetap memakai hasil lama — tidak disarankan.)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes)
+            if answer == QMessageBox.StandardButton.Yes:
+                self._store.clear_pages()
+                self._store.rebind_pdf(path)
+                return
+            self._results = self._store.load_pages()
+            return
+
         answer = QMessageBox.question(
             self, "Lanjutkan pekerjaan sebelumnya?",
             f"File ini pernah diproses: {n} halaman sudah selesai dibaca.\n\n"
@@ -285,6 +308,7 @@ class SimpleMainWindow(QMainWindow):
             self._results = self._store.load_pages()
         else:
             self._store.clear_pages()
+            self._store.rebind_pdf(path)
 
     # ------------------------------------------------------- langkah 2
 
@@ -402,32 +426,50 @@ class SimpleMainWindow(QMainWindow):
     def _export_and_finish(self) -> None:
         assert self._pdf_path is not None
         pages = [self._results[k] for k in sorted(self._results)]
-        failed = [p.page_number for p in pages if p.error]
-
-        if self._out_path is None:
-            stem = os.path.splitext(os.path.basename(self._pdf_path))[0]
-            self._out_path = unique_output_path(self._output_dir, stem)
 
         from app.export.excel import export_workbook
+        from app.export.policy import (filename_suffix, final_eligibility,
+                                       status_label)
+        eligibility = final_eligibility(pages)
+
+        # DRAF by default: the file is always named and labeled by its
+        # verification state, never plainly "…xlsx" until it is truly
+        # final. A fresh file path per state avoids a stale DRAF sitting
+        # next to a FINAL of the same name.
+        stem = os.path.splitext(os.path.basename(self._pdf_path))[0]
+        stem += filename_suffix(eligibility.final_ok)
+        self._out_path = unique_output_path(self._output_dir, stem)
+
         try:
-            export_workbook(pages, self._out_path, self._config())
+            export_workbook(pages, self._out_path, self._config(),
+                            source_pdf=self._pdf_path, eligibility=eligibility)
         except Exception as exc:
             _error_box(self, "File Excel tidak bisa disimpan", exc)
             self._reset_after_file()
             return
 
-        note = ""
-        if failed:
-            daftar = ", ".join(str(n) for n in failed[:10])
-            note = (f"\n\nCatatan: {len(failed)} halaman tidak terbaca "
-                    f"(halaman {daftar}).")
         self.status_label.clear()
-        self.done_label.setText(
-            f"Selesai! File Excel tersimpan di:\n{self._out_path}{note}")
+        if eligibility.final_ok:
+            head = f"Selesai! File Excel FINAL tersimpan di:\n{self._out_path}"
+        else:
+            reasons = "\n• ".join(eligibility.reasons)
+            head = (
+                f"File DRAF tersimpan di:\n{self._out_path}\n\n"
+                f"⚠ Angka BELUM selesai diperiksa, jadi file ini DRAF — "
+                f"jangan dipakai sebagai laporan final. Tekan "
+                f"“Periksa hasil” untuk memeriksa dan membetulkan, "
+                f"lalu ubah lagi.\n\nBelum final karena:\n• {reasons}")
+        self.done_label.setText(head)
+        self.done_label.setStyleSheet(
+            "" if eligibility.final_ok else "color:#8a5a00;")
         self.done_label.setVisible(True)
         self.open_excel_btn.setVisible(True)
         self.open_folder_btn.setVisible(True)
         self.review_btn.setVisible(True)
+        # Nudge review when not final — it is optional but not trivial.
+        self.review_btn.setText("Periksa hasil"
+                                if not eligibility.final_ok
+                                else "Periksa hasil (opsional)")
         self.convert_btn.setEnabled(True)
 
     def open_excel(self) -> None:
@@ -451,16 +493,12 @@ class SimpleMainWindow(QMainWindow):
         dialog = ReviewDialog(self, self._pdf_path, self._results,
                               self._store, self._config())
         dialog.exec()
-        if dialog.changed and self._out_path:
-            # koreksi manusia → perbarui file Excel yang sama
-            from app.export.excel import export_workbook
-            pages = [self._results[k] for k in sorted(self._results)]
-            try:
-                export_workbook(pages, self._out_path, self._config())
-                self.status_label.setText(
-                    "Koreksi tersimpan — file Excel sudah diperbarui.")
-            except Exception as exc:
-                _error_box(self, "File Excel tidak bisa diperbarui", exc)
+        if dialog.changed:
+            # Review may have flipped DRAF→FINAL (or vice-versa), which
+            # changes the filename; re-export through the same policy
+            # path so the file is named/labeled for its new state.
+            self._out_path = None
+            self._export_and_finish()
 
     # ---------------------------------------------------- pengaturan
 

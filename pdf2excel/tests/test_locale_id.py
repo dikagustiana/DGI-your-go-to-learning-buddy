@@ -16,9 +16,9 @@ from app.locale_id import format_id_number, parse_id_number
     # missing separators (OCR often drops the dots)
     ("130326720", Decimal("130326720")),
     ("4488,00", Decimal("4488.00")),
-    # decimals without grouping
+    # decimals without grouping (1 or 2 fractional digits)
     ("0,5", Decimal("0.5")),
-    ("1234,567", Decimal("1234.567")),
+    ("1234,56", Decimal("1234.56")),
     # currency prefixes
     ("Rp 1.500.000", Decimal("1500000")),
     ("Rp. 1.500.000", Decimal("1500000")),
@@ -56,10 +56,28 @@ def test_parses_id_numbers(raw, expected):
     "12,34,56",           # two commas
     "()", "-", "Rp", ":",
     "01/02/2025",         # dates must not become numbers
+    "1234,567",           # 3 fractional digits — ambiguous under id-ID
+    "1,234",              # ambiguous: thousands (US) vs fraction (id-ID)
+    "001234",             # leading zero — identifier, stays text
+    "1234567890123456",   # > 15 digits — identifier, not an amount
 ])
 def test_rejects_non_numbers(raw):
     p = parse_id_number(raw)
     assert not p.is_number, f"{raw!r} must not parse, got {p.value}"
+
+
+@pytest.mark.parametrize("raw, kind", [
+    ("1,234", "ambiguous"),
+    ("1234,567", "ambiguous"),
+    ("1,234.56", "ambiguous"),
+    ("001234", "identifier"),
+    ("1234567890123456", "identifier"),
+    ("130.326.720", "money"),
+    ("7", "integer"),
+    ("SALDO", "text"),
+])
+def test_parse_kind_is_recorded(raw, kind):
+    assert parse_id_number(raw).kind == kind
 
 
 def test_us_format_never_silently_misparsed():

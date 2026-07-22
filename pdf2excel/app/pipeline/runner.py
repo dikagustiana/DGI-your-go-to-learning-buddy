@@ -10,13 +10,29 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from app.config import PipelineConfig
-from app.pipeline import orientation, pdf_loader, table_builder
+from app.pipeline import anomalies as anomalies_mod
+from app.pipeline import orientation, pdf_loader, table_builder, validators
 from app.pipeline.engines import create_engine
 from app.pipeline.models import PageResult
+from app.versions import extraction_config_hash
 
 ProgressFn = Callable[[int, int, str], None]        # (done, total, message)
 CancelFn = Callable[[], bool]
 PageFn = Callable[[PageResult], None]               # per-page sink (e.g. session)
+
+
+def refresh_anomalies(result: PageResult) -> None:
+    """Recompute page-local anomalies + doc-type validators.
+
+    Called after extraction and again after review edits or a label
+    change, so the anomaly list always reflects the current grid.
+    """
+    if result.error:
+        result.anomalies = []
+        return
+    found = anomalies_mod.analyze_page(result)
+    found.extend(validators.run_validators(result.doc_type_label, result.grid))
+    result.anomalies = found
 
 
 def process_page(pdf_path: str, page_number: int, config: PipelineConfig,
@@ -27,8 +43,9 @@ def process_page(pdf_path: str, page_number: int, config: PipelineConfig,
 
     image = pdf_loader.rasterize_page(pdf_path, page_number, dpi=config.dpi)
 
+    margin = -1.0
     if config.rotation == "auto":
-        rot = orientation.detect_rotation(
+        rot, margin = orientation.detect_rotation_scored(
             image, engine, probe_max_side=config.osd_probe_max_side)
         rot_source = "auto"
     else:
@@ -39,11 +56,19 @@ def process_page(pdf_path: str, page_number: int, config: PipelineConfig,
 
     grid = engine.ocr_table(image) if engine.supports_table_structure else None
     tokens = engine.ocr_tokens(image) if grid is None else []
+    flags: list[str] = []
     if grid is None:
         grid = table_builder.build_grid(tokens)
+        flags = table_builder.stability_flags(tokens, grid)
 
-    return PageResult(page_number=page_number, rotation_applied=rot,
-                      rotation_source=rot_source, grid=grid, tokens=tokens)
+    result = PageResult(
+        page_number=page_number, rotation_applied=rot,
+        rotation_source=rot_source, grid=grid, tokens=tokens,
+        dpi=config.dpi, orientation_margin=margin,
+        engine=config.engine, structure_flags=flags,
+        config_hash=extraction_config_hash(config.to_dict(), config.engine))
+    refresh_anomalies(result)
+    return result
 
 
 def process_pdf(pdf_path: str, config: PipelineConfig,

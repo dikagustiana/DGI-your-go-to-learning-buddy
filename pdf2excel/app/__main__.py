@@ -86,12 +86,20 @@ def cmd_convert(args) -> int:
         store.close()
 
     from app.export.excel import export_workbook
-    export_workbook(pages, args.output, config)
+    from app.export.policy import final_eligibility, status_label
+    eligibility = final_eligibility(pages)
+    export_workbook(pages, args.output, config, source_pdf=args.pdf,
+                    eligibility=eligibility)
 
     errors = [p for p in pages if p.error]
     print(f"done: {len(pages)} page(s) -> {args.output} "
           f"in {time.time() - t0:.1f}s"
           + (f" ({len(errors)} page(s) with errors)" if errors else ""))
+    print(f"status: {status_label(eligibility.final_ok)}")
+    if not eligibility.final_ok:
+        print("  (DRAF — belum FINAL karena:)", file=sys.stderr)
+        for reason in eligibility.reasons:
+            print(f"    - {reason}", file=sys.stderr)
     for p in errors:
         print(f"  page {p.page_number}: {p.error}", file=sys.stderr)
     return 1 if errors else 0
@@ -132,8 +140,12 @@ def cmd_export(args) -> int:
     config.export_raw_columns = not args.no_raw
 
     from app.export.excel import export_workbook
-    export_workbook(pages, args.output, config)
+    from app.export.policy import final_eligibility, status_label
+    eligibility = final_eligibility(pages)
+    export_workbook(pages, args.output, config, source_pdf=args.pdf,
+                    eligibility=eligibility)
     print(f"exported {len(pages)} page(s) -> {args.output}")
+    print(f"status: {status_label(eligibility.final_ok)}")
     return 0
 
 

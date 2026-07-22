@@ -91,12 +91,21 @@ def _portrait_score(tokens) -> float:
                if (t.y1 - t.y0) > (t.x1 - t.x0))
 
 
-def detect_rotation(image: np.ndarray, engine: OCREngine,
-                    probe_max_side: int = 1200) -> int:
-    """Return the clockwise rotation (0/90/180/270) to apply before OCR."""
+def detect_rotation_scored(image: np.ndarray, engine: OCREngine,
+                           probe_max_side: int = 1200) -> tuple[int, float]:
+    """Clockwise rotation (0/90/180/270) to apply before OCR, plus a
+    decision margin.
+
+    Margin semantics: -1.0 = decided by a trusted classifier (OSD or the
+    engine's native detector), no ratio applies. Otherwise it is
+    best_score / runner_up_score of the flip stage — measured ~30x on
+    clean scans; values near 1.0 mean the detector barely preferred one
+    orientation and the page deserves human eyes (anomaly framework
+    flags margins below its threshold).
+    """
     osd = _tesseract_osd(image)
     if osd is not None:
-        return osd
+        return osd, -1.0
 
     probe = _downscale(image, probe_max_side)
 
@@ -105,27 +114,38 @@ def detect_rotation(image: np.ndarray, engine: OCREngine,
     except Exception:
         native = None
     if native is not None:
-        return native
+        return native, -1.0
 
     # Stage a: axis. Are the text lines horizontal or vertical?
     try:
         axis_tokens = engine.ocr_tokens(probe)
     except Exception:
-        return 0
+        return 0, 1.0
     if not axis_tokens:
-        return 0
+        return 0, 1.0
     pair = ((0, 180) if _landscape_score(axis_tokens) >= _portrait_score(axis_tokens)
             else (90, 270))
 
     # Stage b: flip. With the angle classifier off, only the right-way-up
     # candidate recognizes confidently.
-    best_rot, best_score = pair[0], -1.0
+    scores: dict[int, float] = {}
     for rot in pair:
         try:
             tokens = engine.ocr_tokens(rotate_image(probe, rot), use_cls=False)
         except Exception:
+            scores[rot] = 0.0
             continue
-        score = _landscape_score(tokens)
-        if score > best_score + 1e-9:
-            best_rot, best_score = rot, score
-    return best_rot
+        scores[rot] = _landscape_score(tokens)
+
+    best_rot = max(pair, key=lambda r: (scores.get(r, 0.0), r == pair[0]))
+    best = scores.get(best_rot, 0.0)
+    other = max((s for r, s in scores.items() if r != best_rot), default=0.0)
+    margin = best / other if other > 0 else (100.0 if best > 0 else 1.0)
+    return best_rot, margin
+
+
+def detect_rotation(image: np.ndarray, engine: OCREngine,
+                    probe_max_side: int = 1200) -> int:
+    """Back-compat wrapper around detect_rotation_scored."""
+    rotation, _margin = detect_rotation_scored(image, engine, probe_max_side)
+    return rotation

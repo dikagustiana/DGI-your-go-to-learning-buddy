@@ -59,7 +59,8 @@ def group_rows(tokens: list[OCRToken], band_factor: float = 0.5) -> list[list[OC
 
 
 def find_column_bounds(tokens: list[OCRToken], min_gap: float | None = None,
-                       bin_px: int = 4) -> list[tuple[float, float]]:
+                       bin_px: int = 4,
+                       gap_factor: float = 0.6) -> list[tuple[float, float]]:
     """Find column X-ranges from the whitespace gutters of the page."""
     if not tokens:
         return []
@@ -69,7 +70,7 @@ def find_column_bounds(tokens: list[OCRToken], min_gap: float | None = None,
         # Gutters narrower than ~0.6 median token height are usually
         # just inter-word spacing, not column separators.
         med_h = statistics.median(t.height for t in tokens)
-        min_gap = max(med_h * 0.6, bin_px * 2)
+        min_gap = max(med_h * gap_factor, bin_px * 2)
 
     # Titles and full-width banners span several columns; keep them out
     # of the gutter evidence. 2.5x the median token width separates them
@@ -108,12 +109,19 @@ def find_column_bounds(tokens: list[OCRToken], min_gap: float | None = None,
     return bounds
 
 
-def build_grid(tokens: list[OCRToken]) -> list[list[Cell | None]]:
-    """Full reconstruction: tokens -> rows -> columns -> cell grid."""
-    rows = group_rows(tokens)
+def build_grid(tokens: list[OCRToken],
+               band_factor: float = 0.5,
+               gap_factor: float = 0.6) -> list[list[Cell | None]]:
+    """Full reconstruction: tokens -> rows -> columns -> cell grid.
+
+    Cells carry provenance: their bbox is the union of the source
+    token boxes, and their confidence is the MINIMUM of the fragments
+    (a cell is only as trustworthy as its worst fragment).
+    """
+    rows = group_rows(tokens, band_factor=band_factor)
     if not rows:
         return []
-    bounds = find_column_bounds(tokens)
+    bounds = find_column_bounds(tokens, gap_factor=gap_factor)
     n_cols = len(bounds)
 
     def col_of(tok: OCRToken) -> int:
@@ -136,6 +144,44 @@ def build_grid(tokens: list[OCRToken]) -> list[list[Cell | None]]:
             toks.sort(key=lambda t: t.x0)
             text = " ".join(t.text for t in toks)
             conf = min(t.confidence for t in toks)
-            cells.append(Cell.from_text(text, conf))
+            bbox = (min(t.x0 for t in toks), min(t.y0 for t in toks),
+                    max(t.x1 for t in toks), max(t.y1 for t in toks))
+            cells.append(Cell.from_text(text, conf, bbox=bbox))
         grid.append(cells)
     return grid
+
+
+def stability_flags(tokens: list[OCRToken],
+                    grid: list[list[Cell | None]]) -> list[str]:
+    """Cheap structural self-checks on the geometric reconstruction.
+
+    The geometric builder is a CANDIDATE extraction, not ground truth.
+    These flags mark pages where small parameter changes flip the
+    structure — i.e. where the row-banding or column-gutter decision was
+    marginal and a human should look. (A full multi-hypothesis builder
+    is future work; these safety flags are the honest first step.)
+    """
+    flags: list[str] = []
+    if not tokens or not grid:
+        return flags
+
+    n_rows = len(grid)
+    n_cols = max((len(r) for r in grid), default=0)
+
+    # Row banding: does a slightly tighter/looser Y tolerance change
+    # the number of rows?
+    for factor in (0.35, 0.65):
+        alt = group_rows(tokens, band_factor=factor)
+        if len(alt) != n_rows:
+            flags.append("row-banding-unstable")
+            break
+
+    # Column gutters: does a slightly different gap threshold change
+    # the number of columns?
+    for factor in (0.45, 0.9):
+        alt_bounds = find_column_bounds(tokens, gap_factor=factor)
+        if len(alt_bounds) != n_cols:
+            flags.append("column-gutter-unstable")
+            break
+
+    return flags
