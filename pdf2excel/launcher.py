@@ -10,6 +10,8 @@ and headless use).
 import multiprocessing
 import sys
 
+from app.__main__ import main
+
 
 def _acquire_app_mutex():
     """Hold the named mutex Inno Setup's AppMutex checks (Windows only).
