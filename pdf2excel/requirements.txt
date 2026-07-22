@@ -1,0 +1,35 @@
+# Core pipeline (milestone 1)
+PyMuPDF==1.28.0
+rapidocr-onnxruntime==1.4.4
+onnxruntime==1.27.0
+numpy==2.4.6
+Pillow==12.3.0
+openpyxl==3.1.5
+
+# GUI (milestone 2+)
+PySide6==6.9.1
+
+# Optional: Tesseract OSD orientation (needs a system tesseract binary)
+# pytesseract==0.3.13
+
+# Optional: PP-StructureV3 engine — LARGE download (~2 GB installed;
+# models ~500 MB more, fetched to ~/.paddlex on first run).
+# Note: the paddlex[ocr] extras are required — plain paddleocr is not
+# enough for the PP-StructureV3 pipeline. Tested with:
+# paddlepaddle==3.2.1
+# paddleocr==3.3.2
+# paddlex[ocr]==3.3.13
+
+# Dev
+pytest==9.1.1
+
+# Packaging (only needed to build the standalone executable).
+# Pinned for reproducible installers; the CI installs this explicitly.
+# pyinstaller==6.21.0
+#
+# Reproducibility note: for a fully reproducible supply chain, install
+# with hash-locked wheels (pip install --require-hashes -r a lockfile)
+# and pin the GitHub Actions to commit SHAs. The lockfile/SHA pinning is
+# a documented follow-up (see FASE7 notes in the review report) — it
+# needs the exact resolved hashes/SHAs from a trusted run, which must not
+# be guessed.

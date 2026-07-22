@@ -1,0 +1,224 @@
+# pdf2excel — offline scanned-PDF → Excel converter
+
+Converts scanned (image-only) PDF documents — Indonesian corporate finance
+papers: rekening koran, faktur, debit/credit notes, RBP listings — into
+clean Excel workbooks. Runs **100% locally**: no cloud OCR, no external API
+calls anywhere in the OCR/extraction path. All models run on-device.
+
+## Status: complete ✅
+
+| # | Milestone | Status |
+|---|-----------|--------|
+| 1 | Core pipeline: load → detect scanned → rasterize 300 DPI → auto-rotate → RapidOCR → grid reconstruction → .xlsx | **done** |
+| 2 | PySide6 shell: open file, batch run in worker thread, page list | **done** |
+| 3 | Review/QA view: image + editable table, confidence highlighting, rotation override, doc-type labels | **done** |
+| 4 | Export options + resumable session persistence | **done** |
+| 5 | PaddleOCR PP-StructureV3 engine (optional) | **done** |
+| 6 | PyInstaller packaging | **done** |
+
+## Setup
+
+Python 3.11+.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+RapidOCR's models ship inside the wheel — no downloads, works offline
+immediately.
+
+Optional extras:
+
+* **Tesseract OSD** for faster orientation detection: install a system
+  `tesseract` binary and `pip install pytesseract`. Without it the app
+  falls back to a built-in OCR-probe heuristic (slower per page, no
+  extra dependencies).
+* **PaddleOCR PP-StructureV3** (native table structure recognition):
+
+  ```bash
+  pip install paddlepaddle paddleocr "paddlex[ocr]"
+  ```
+
+  Large download (~2 GB installed; models ~500 MB more, fetched to
+  `~/.paddlex/official_models` on first run — after that it runs fully
+  offline). The `paddlex[ocr]` extras are required; plain `paddleocr`
+  alone cannot construct the PP-StructureV3 pipeline. Installed via
+  wheels, **not** by cloning the PaddleOCR repo (the `ppstructure/`
+  directory there is the deprecated V2). Tested versions are noted in
+  `requirements.txt`.
+
+## Usage
+
+### GUI
+
+```bash
+python -m app              # simple three-step window (default)
+python -m app --advanced   # full expert window
+```
+
+The **default window** is the simplified flow for non-technical
+(elderly) end users: plain Indonesian, no jargon, three big
+high-contrast buttons (open PDF → convert → open Excel/folder),
+auto-save to Documents with no save dialog, plain-language errors with
+technical detail tucked behind "Show details", optional review via
+"Periksa hasil (opsional)", and technical settings behind a small
+"Pengaturan lanjutan" link. Cancel/resume and per-page session
+persistence work the same as in the expert window. End-user guide:
+[CARA-PAKAI.md](CARA-PAKAI.md).
+
+The **expert window** (`--advanced`) keeps the full workflow below:
+
+Open PDF… → Run OCR → watch pages fill in live (each list entry shows
+the reconstructed grid size and any auto-applied rotation) → review
+each page → Export…. OCR runs in a background thread; the Cancel button
+stops after the current page. Engine, DPI, default rotation, and export
+layout sit in the toolbar; the PaddleOCR engine appears greyed-out with
+an install hint until its package is installed.
+
+**Review workflow (per page).** The corrected page image sits next to
+the extracted table:
+
+* **Edit cells directly** — the raw text is re-parsed with id-ID rules,
+  the cell turns green, and it is marked `edited` for the export audit
+  trail. Amber cells are the ones OCR was unsure about; start there.
+* **Rotation override** — pick a rotation; the image updates instantly,
+  a banner reminds you the table was extracted at the old angle, and
+  “Re-run OCR at this rotation” re-extracts just that page in the
+  background (confirming first if it would discard your edits). The
+  document-type label survives a re-run; the reviewed flag is reset.
+* **Document type** — free-text dropdown (e.g. *rekening koran*,
+  *faktur*); labels accumulate for reuse and drive the
+  `merged_by_label` export layout.
+* **Reviewed** — tick when the page checks out; the page list shows ✓.
+
+**Export gate.** Exporting with unreviewed pages pops a warning listing
+them — OCR output is never exported silently.
+
+**Resumable sessions.** Every extraction and every review action (cell
+edit, label, reviewed tick) is written immediately to a session file
+next to the PDF (`statement.pdf` → `statement.pdf.p2x`, SQLite).
+Closing the app mid-QA loses nothing; reopening the same PDF offers to
+resume (page count + reviewed count shown) or start fresh. A crash or
+cancel mid-batch keeps every completed page. Delete the `.p2x` file to
+forget a session entirely.
+
+**Export options dialog** (on Export…): sheet layout (per page /
+merged by document-type label), include or omit the hidden raw-OCR
+audit columns, and *export only reviewed pages* — the clean path for
+partial deliveries from a long QA pass.
+
+### Headless CLI
+
+```bash
+# What is this file? (page count, scanned vs native, engine availability)
+python -m app inspect statement.pdf
+
+# Convert. Auto-detects per-page rotation, OCRs at 300 DPI, exports xlsx.
+python -m app convert statement.pdf -o statement.xlsx
+
+# Options
+python -m app convert statement.pdf -o out.xlsx \
+    --pages 1-20            `# 1-based page range` \
+    --rotation 270          `# force a rotation instead of auto-detect` \
+    --dpi 300 \
+    --engine rapidocr \
+    --layout sheet_per_page `# or merged_by_label` \
+    --no-session             # skip writing statement.pdf.p2x
+
+# Re-export a saved session (no OCR) — e.g. after reviewing in the GUI
+python -m app export statement.pdf -o out.xlsx --reviewed-only
+```
+
+`convert` writes the session file page by page, so you can OCR a
+150-page file headless (even overnight), then open the same PDF in the
+GUI, resume, review, and export — no second OCR run.
+
+`python -m app` with no arguments will launch the GUI from milestone 2.
+
+### Try it on a synthetic sample
+
+```bash
+python samples/make_sample.py sample.pdf   # 2 image-only pages, page 2 rotated 90°
+python -m app convert sample.pdf -o sample.xlsx
+```
+
+### Choosing an engine
+
+| | `rapidocr` (default) | `paddle-ppstructure` |
+|---|---|---|
+| Install | bundled, tiny | ~2.5 GB extra, opt-in |
+| Speed (CPU) | ~5–25 s/page | ~30–60 s/page after warm-up |
+| Table structure | reconstructed geometrically from token boxes | recognized natively (real merged-cell handling) |
+| Orientation | OCR-probe heuristic | dedicated page classifier (PP-LCNet doc_ori) |
+| Best for | long batches, quick passes | dense/complex tables, merged cells |
+
+Both run 100% offline once installed and are selectable per run in the
+toolbar or with `--engine`; results land in the same session format, so
+you can re-run individual pages with the other engine from the QA view.
+
+## What the output looks like
+
+* One sheet per page (default). Cells that parse as **id-ID numbers**
+  (dot = thousands, comma = decimals: `130.326.720`, `4.488,00`) are
+  written as real Excel numbers; everything else stays text.
+* A **hidden column block** on the right of each sheet preserves the raw
+  OCR string for every cell — unhide it to audit any parsed value.
+* Cells below the OCR-confidence threshold get an amber fill.
+* Text that doesn't unambiguously parse as an id-ID number is **kept as
+  text**, never guessed into a number. US-format `1,234.56` is refused
+  rather than silently misparsed.
+
+**OCR output is never to be trusted blindly for finance tie-out.** The
+QA review view (milestone 3) blocks export until a human has had the
+chance to check flagged cells against the page image.
+
+## Running tests
+
+```bash
+python -m pytest tests/
+```
+
+## Packaging (standalone executable)
+
+Build on the OS you are targeting (PyInstaller does not cross-compile:
+build the Windows `.exe` on Windows, the macOS app on macOS).
+
+```bash
+pip install pyinstaller
+pyinstaller pdf2excel.spec --noconfirm
+```
+
+Output: `dist/pdf2excel/` — a one-folder bundle (~650 MB) containing
+
+| executable | use |
+|---|---|
+| `pdf2excel` (`.exe` on Windows) | the GUI — double-click, no console window |
+| `pdf2excel-cli` | `inspect` / `convert` / `export` for scripted, headless use |
+
+Zip the folder to distribute; no Python install is needed on the target
+machine, and the bundled RapidOCR models make it fully offline.
+
+Notes:
+
+* **One-folder, not one-file** — deliberate: Qt + onnxruntime in a
+  one-file exe unpack to a temp dir on every launch (slow starts,
+  antivirus false positives).
+* **The bundle ships the RapidOCR engine only.** PaddleOCR is excluded
+  in the spec — both for size (gigabytes) and because PyInstaller would
+  otherwise trace the lazy imports and bloat every build made on a
+  machine that has paddle installed. Users who want PP-StructureV3 run
+  from source; the frozen app greys that engine out with the install
+  hint.
+* **macOS**: the same spec builds a runnable binary; for a proper
+  signed `.app` bundle add a `BUNDLE(...)` step and codesign — outside
+  the scope of this project.
+* If the build machine has a Debian/Ubuntu system `cryptography`
+  package, PyInstaller's analysis can crash with a `pyo3_runtime`
+  panic; `pip install --ignore-installed cryptography` fixes it.
+
+## Documentation
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the pipeline design, the
+orientation-detection algorithm, and the table-reconstruction algorithm.

@@ -1,0 +1,171 @@
+# Builds and verifies the Windows installer for pdf2excel ("PDF ke Excel").
+#
+# Jobs:
+#   test            — run the full pytest suite (incl. slow real-OCR corpus)
+#   build-installer — freeze, smoke, compile Setup.exe, upload artifact
+#   verify-clean    — SECOND job that ONLY consumes the installer artifact
+#                     (no source tree, non-admin, OUTBOUND NETWORK BLOCKED)
+#                     and asserts the INSTALLED app's workbook CONTENTS.
+
+name: Build Windows installer
+
+on:
+  push:
+    branches: [claude/pdf-to-excel-ocr-app-8079cd]
+    paths: ["pdf2excel/**", ".github/workflows/build-windows-installer.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pdf2excel
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest (full suite, including slow real-OCR corpus)
+        run: python -m pytest -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+  build-installer:
+    needs: test
+    runs-on: windows-latest
+    env:
+      # Exposed so the 'if' below can detect whether signing is configured
+      # (secrets can't be referenced directly in step 'if' conditions).
+      SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+    defaults:
+      run:
+        working-directory: pdf2excel
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Generate sample scanned PDF
+        run: python samples/make_sample.py sample.pdf
+      - name: Freeze with PyInstaller
+        run: pyinstaller pdf2excel.spec --noconfirm
+      - name: Smoke-test frozen exe (bundled models, real OCR)
+        run: |
+          $out = & dist\pdf2excel\pdf2excel-cli.exe inspect sample.pdf
+          Write-Output $out
+          if (-not ($out -join "`n" -match "'rapidocr': True")) {
+            throw "RapidOCR models missing from the frozen bundle"
+          }
+          if ($out -join "`n" -match "'paddle-ppstructure': True") {
+            throw "paddle leaked into the frozen bundle"
+          }
+      - name: Compile installer (Inno Setup)
+        run: |
+          python installer\gen_version.py
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+          Get-ChildItem installer\Output
+      - name: Sign installer (only if a signing certificate is configured)
+        if: ${{ env.SIGN_PFX_BASE64 != '' }}
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          # Sign both the inner EXEs and the installer. Dev builds
+          # without the secret skip this and stay clearly UNSIGNED.
+          [IO.File]::WriteAllBytes("cert.pfx",
+            [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+          $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe"
+          foreach ($f in @("dist\pdf2excel\pdf2excel.exe",
+                           "dist\pdf2excel\pdf2excel-cli.exe",
+                           (Get-ChildItem installer\Output\*.exe).FullName)) {
+            & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /f cert.pfx /p $env:SIGN_PFX_PASSWORD $f
+          }
+          Remove-Item cert.pfx
+      - name: Generate SBOM + checksums
+        run: python installer\gen_sbom.py (Get-ChildItem installer\Output\*.exe).FullName
+      - name: Upload Setup.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-ke-Excel-Setup
+          path: |
+            pdf2excel/installer/Output/*.exe
+            pdf2excel/installer/Output/sbom.json
+            pdf2excel/installer/Output/SHA256SUMS.txt
+          if-no-files-found: error
+
+  verify-clean:
+    needs: build-installer
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # NOTE: intentionally NO checkout — this job must rely only on the
+      # installer artifact, exactly like an end user's clean machine.
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PDF-ke-Excel-Setup
+          path: installer-artifact
+      - name: Fetch verifier assets (sample generator + content assertions)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            pdf2excel/samples/make_sample.py
+            pdf2excel/samples/make_adversarial.py
+            pdf2excel/ci/verify_installed.py
+          sparse-checkout-cone-mode: false
+          path: verifier
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Silent install (per-user, no admin)
+        run: |
+          $setup = Get-ChildItem installer-artifact\*.exe | Select-Object -First 1
+          Start-Process -Wait $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          $appdir = "$env:LOCALAPPDATA\Programs\PDF ke Excel"
+          if (-not (Test-Path "$appdir\pdf2excel-cli.exe")) { throw "CLI exe not installed" }
+          if (-not (Test-Path "$appdir\unins000.exe"))      { throw "uninstaller not registered" }
+      - name: Make a sample PDF (only PyMuPDF+Pillow, for input generation)
+        run: |
+          pip install "PyMuPDF==1.28.0" "Pillow==12.3.0"
+          python verifier\pdf2excel\samples\make_sample.py sample.pdf
+      - name: Convert with the INSTALLED app, OUTBOUND NETWORK BLOCKED
+        run: |
+          # Block outbound network for this process tree: prove the app
+          # needs no internet (offline / confidential guarantee).
+          New-NetFirewallRule -DisplayName "p2x-block-out" -Direction Outbound `
+            -Program "$env:LOCALAPPDATA\Programs\PDF ke Excel\pdf2excel-cli.exe" `
+            -Action Block -Profile Any | Out-Null
+          try {
+            & "$env:LOCALAPPDATA\Programs\PDF ke Excel\pdf2excel-cli.exe" `
+              convert sample.pdf -o out.xlsx --no-session
+          } finally {
+            Remove-NetFirewallRule -DisplayName "p2x-block-out" -ErrorAction SilentlyContinue
+          }
+      - name: Assert workbook CONTENTS (not just existence)
+        run: |
+          pip install "openpyxl==3.1.5"
+          python verifier\pdf2excel\ci\verify_installed.py out.xlsx
+      - name: Uninstall cleanly
+        run: |
+          $u = "$env:LOCALAPPDATA\Programs\PDF ke Excel\unins000.exe"
+          Start-Process -Wait $u -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES'
+          if (Test-Path "$env:LOCALAPPDATA\Programs\PDF ke Excel\pdf2excel.exe") {
+            throw "app still present after uninstall"
+          }
