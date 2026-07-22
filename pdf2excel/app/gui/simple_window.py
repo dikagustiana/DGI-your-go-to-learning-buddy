@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt, QStandardPaths, QThread, QUrl
+from PySide6.QtCore import Qt, QStandardPaths, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
@@ -34,8 +34,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import PipelineConfig
+from app.gui.job_coordinator import JobCoordinator
 from app.gui.review_view import ReviewView
-from app.gui.worker import OcrWorker, SinglePageWorker
 from app.pipeline import pdf_loader
 from app.pipeline.engines import ENGINES, available_engines
 from app.pipeline.models import PageResult
@@ -124,8 +124,13 @@ class SimpleMainWindow(QMainWindow):
         self._results: dict[int, PageResult] = {}
         self._store: SessionStore | None = None
         self._out_path: str | None = None
-        self._thread: QThread | None = None
-        self._worker: OcrWorker | None = None
+        self._persist_broken = False   # a session save has failed
+
+        self._jobs = JobCoordinator(self)
+        self._jobs.batch_progress.connect(self._on_progress)
+        self._jobs.page_done.connect(self._on_page_done)
+        self._jobs.batch_finished.connect(self._on_finished)
+        self._jobs.failed.connect(self._on_failed)
 
         # nilai "Pengaturan lanjutan" (default aman; tak pernah tampil
         # di alur utama)
@@ -324,7 +329,7 @@ class SimpleMainWindow(QMainWindow):
                 if p not in self._results or self._results[p].error]
 
     def convert(self) -> None:
-        if not self._pdf_path or self._thread is not None:
+        if not self._pdf_path or self._jobs.busy:
             return
         if self._is_complete():
             self._export_and_finish()
@@ -334,17 +339,11 @@ class SimpleMainWindow(QMainWindow):
         if self._store:
             try:
                 self._store.save_config(self._config())
-            except Exception:
-                pass
+            except Exception as exc:
+                self._note_persist_failure(exc)
 
-        self._worker = OcrWorker(self._pdf_path, self._config(), pages=missing)
-        self._thread = QThread(self)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.page_done.connect(self._on_page_done)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.failed.connect(self._on_failed)
+        if not self._jobs.start_batch(self._pdf_path, self._config(), missing):
+            return
 
         self.open_btn.setEnabled(False)
         self.convert_btn.setEnabled(False)
@@ -359,11 +358,10 @@ class SimpleMainWindow(QMainWindow):
         self.status_label.setText("Bersiap membaca dokumen…")
         self.cancel_btn.setVisible(True)
         self.cancel_btn.setEnabled(True)
-        self._thread.start()
 
     def cancel(self) -> None:
-        if self._worker:
-            self._worker.cancel()
+        if self._jobs.busy:
+            self._jobs.cancel()
             self.cancel_btn.setEnabled(False)
             self.status_label.setText(
                 "Berhenti sebentar — menyelesaikan halaman yang sedang "
@@ -382,16 +380,24 @@ class SimpleMainWindow(QMainWindow):
                 f"Sedang memproses halaman {done + 1} dari {total}… "
                 f"Mohon tunggu, ya.")
 
+    def _note_persist_failure(self, exc: Exception) -> None:
+        """A session save failed: never claim progress is safe."""
+        self._persist_broken = True
+        self.status_label.setText(
+            "⚠ Progres TIDAK bisa disimpan otomatis (folder mungkin "
+            "penuh atau terkunci). Jangan tutup aplikasi sebelum file "
+            f"Excel selesai dibuat. Rincian: {exc}")
+
     def _on_page_done(self, result: PageResult) -> None:
         self._results[result.page_number] = result
         if self._store:
             try:
                 self._store.save_page(result)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._note_persist_failure(exc)
 
     def _on_finished(self, _results: list, was_cancelled: bool) -> None:
-        self._teardown()
+        self._release_controls()
         if was_cancelled:
             n_done = len([r for r in self._results.values() if not r.error])
             self.status_label.setText(
@@ -402,20 +408,12 @@ class SimpleMainWindow(QMainWindow):
         self._export_and_finish()
 
     def _on_failed(self, message: str) -> None:
-        self._teardown()
+        self._release_controls()
         self.status_label.clear()
         self._reset_after_file()
         _error_box(self, "Ada kendala", message)
 
-    def _teardown(self) -> None:
-        if self._thread:
-            self._thread.quit()
-            self._thread.wait()
-            self._thread.deleteLater()
-        if self._worker:
-            self._worker.deleteLater()
-        self._thread = None
-        self._worker = None
+    def _release_controls(self) -> None:
         self.open_btn.setEnabled(True)
         self.settings_btn.setEnabled(True)
         self.progress.setVisible(False)
@@ -515,11 +513,20 @@ class SimpleMainWindow(QMainWindow):
             self._store = None
 
     def closeEvent(self, event) -> None:
-        if self._worker:
-            self._worker.cancel()
-        if self._thread:
-            self._thread.quit()
-            self._thread.wait()
+        # Ask the worker to stop and wait (bounded) for the last page so
+        # no queued result is lost and the SQLite file is closed cleanly.
+        self.status_label.setText(
+            "Menutup — menyelesaikan halaman yang sedang dibaca…")
+        stopped = self._jobs.shutdown()
+        if not stopped:
+            # Extremely rare: worker refused to stop in time. Warn rather
+            # than risk a corrupt half-written session.
+            QMessageBox.warning(
+                self, "Masih memproses",
+                "Aplikasi masih menyelesaikan satu halaman. Tunggu "
+                "beberapa detik lalu tutup lagi.")
+            event.ignore()
+            return
         self._close_store()
         event.accept()
 
@@ -540,8 +547,9 @@ class ReviewDialog(QDialog):
         self._results = results
         self._store = store
         self._config = config
-        self._sp_thread: QThread | None = None
-        self._sp_worker: SinglePageWorker | None = None
+        self._jobs = JobCoordinator(self)
+        self._jobs.single_done.connect(self._on_reocr_done)
+        self._jobs.failed.connect(self._on_reocr_failed)
 
         hint = QLabel(
             "Sel kuning = bacaan yang kurang yakin, silakan cocokkan dengan "
@@ -601,8 +609,12 @@ class ReviewDialog(QDialog):
         if self._store:
             try:
                 self._store.save_page(result)
-            except Exception:
-                pass
+            except Exception as exc:
+                QMessageBox.warning(
+                    self, "Koreksi belum tersimpan",
+                    "Koreksi tidak bisa disimpan ke file kerja "
+                    f"(rincian: {exc}). Selesaikan konversi ke Excel "
+                    "sekarang agar tidak hilang.")
         item = self.page_list.currentItem()
         if item and item.data(Qt.ItemDataRole.UserRole) == result.page_number:
             label = f"Halaman {result.page_number}"
@@ -611,7 +623,7 @@ class ReviewDialog(QDialog):
             item.setText(label)
 
     def _on_reocr(self, page_number: int, rotation: int) -> None:
-        if self._sp_thread is not None:
+        if self._jobs.busy:
             return
         result = self._results.get(page_number)
         if result is not None and any(
@@ -622,19 +634,11 @@ class ReviewDialog(QDialog):
                 "dan diganti hasil pembacaan baru. Lanjutkan?")
             if answer != QMessageBox.StandardButton.Yes:
                 return
-
-        self._sp_worker = SinglePageWorker(
-            self._pdf_path, page_number, self._config, rotation)
-        self._sp_thread = QThread(self)
-        self._sp_worker.moveToThread(self._sp_thread)
-        self._sp_thread.started.connect(self._sp_worker.run)
-        self._sp_worker.done.connect(self._on_reocr_done)
-        self._sp_worker.failed.connect(self._on_reocr_failed)
-        self.review.set_busy(True)
-        self._sp_thread.start()
+        if self._jobs.start_single(self._pdf_path, page_number,
+                                   self._config, rotation):
+            self.review.set_busy(True)
 
     def _on_reocr_done(self, result: PageResult) -> None:
-        self._teardown_sp()
         old = self._results.get(result.page_number)
         if old is not None:
             result.doc_type_label = old.doc_type_label
@@ -646,24 +650,11 @@ class ReviewDialog(QDialog):
             self.review.set_page(self._pdf_path, result.page_number, result)
 
     def _on_reocr_failed(self, message: str) -> None:
-        self._teardown_sp()
         self.review.set_busy(False)
         _error_box(self, "Halaman tidak bisa dibaca ulang", message)
 
-    def _teardown_sp(self) -> None:
-        if self._sp_thread:
-            self._sp_thread.quit()
-            self._sp_thread.wait()
-            self._sp_thread.deleteLater()
-        if self._sp_worker:
-            self._sp_worker.deleteLater()
-        self._sp_thread = None
-        self._sp_worker = None
-
     def closeEvent(self, event) -> None:
-        if self._sp_thread:
-            self._sp_thread.quit()
-            self._sp_thread.wait()
+        self._jobs.shutdown()
         event.accept()
 
 

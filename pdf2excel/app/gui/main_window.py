@@ -255,33 +255,73 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.status_label.setText(f"WARNING — session save failed: {exc}")
 
+    def _missing_pages(self) -> list[int]:
+        total = self._pdf_info.n_pages if self._pdf_info else 0
+        return [p for p in range(1, total + 1)
+                if p not in self._results or self._results[p].error]
+
     def run_ocr(self) -> None:
         if not self._pdf_path or self._thread is not None:
             return
-        if self._results and any(
-                c.edited for r in self._results.values()
-                for row in r.grid for c in row if c):
-            answer = QMessageBox.question(
-                self, "Discard review edits?",
-                "Re-running OCR replaces all extracted tables, including "
-                "cells you edited during review. Continue?")
-            if answer != QMessageBox.StandardButton.Yes:
+
+        full_rerun = False
+        missing = self._missing_pages()
+        if self._results:
+            # Resumed/partial session: default to continuing the missing
+            # pages. A full re-run is a SEPARATE, explicit choice — it
+            # must never silently wipe resumed or edited results (item 15).
+            has_edits = any(c.edited for r in self._results.values()
+                            for row in r.grid for c in row if c)
+            box = QMessageBox(self)
+            box.setWindowTitle("Run OCR")
+            box.setText(
+                f"{len(self._results)} page(s) already extracted "
+                f"({len(missing)} still missing).")
+            cont = box.addButton("Continue missing pages",
+                                 QMessageBox.ButtonRole.AcceptRole)
+            rerun = box.addButton("Re-run ALL pages from scratch",
+                                  QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.setDefaultButton(cont)
+            if has_edits:
+                box.setInformativeText(
+                    "Some pages have reviewer edits — a full re-run "
+                    "discards them; continuing keeps them.")
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is rerun:
+                full_rerun = True
+            elif clicked is cont:
+                full_rerun = False
+            else:
                 return
-        self._results.clear()
+            if not missing and not full_rerun:
+                return  # nothing to do
+
+        if full_rerun:
+            self._results.clear()
+            if self._store:
+                try:
+                    self._store.clear_pages()
+                except Exception as exc:
+                    self.status_label.setText(f"WARNING — session save failed: {exc}")
+            missing = list(range(1, (self._pdf_info.n_pages if self._pdf_info else 0) + 1))
+
         if self._store:
             try:
-                self._store.clear_pages()
                 self._store.save_config(self._current_config())
-            except Exception:
-                pass
+            except Exception as exc:
+                self.status_label.setText(f"WARNING — session save failed: {exc}")
+
         for i in range(self.page_list.count()):
             item = self.page_list.item(i)
             pno = item.data(Qt.ItemDataRole.UserRole)
-            item.setText(f"Page {pno} — queued")
-            item.setBackground(QColor("transparent"))
+            if pno in missing:
+                item.setText(f"Page {pno} — queued")
+                item.setBackground(QColor("transparent"))
 
         config = self._current_config()
-        self._worker = OcrWorker(self._pdf_path, config)
+        self._worker = OcrWorker(self._pdf_path, config, pages=missing)
         self._thread = QThread(self)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -291,7 +331,7 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
 
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, self.page_list.count())
+        self.progress_bar.setRange(0, len(missing))
         self.progress_bar.setValue(0)
         self._thread.start()
         self._update_actions()

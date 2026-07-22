@@ -10,6 +10,8 @@ page-level 90° rotation is handled earlier by orientation detection.
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 from app.pipeline.engines.base import OCREngine
@@ -21,6 +23,10 @@ class RapidOCREngine(OCREngine):
     supports_table_structure = False
 
     _instance = None  # model load is slow; share one instance per process
+    # The underlying ONNX session is a shared singleton; serialize calls
+    # so a stray second thread can never enter it concurrently (the GUI
+    # JobCoordinator already prevents this, but this is defense-in-depth).
+    _lock = threading.Lock()
 
     @classmethod
     def models_present(cls) -> bool:
@@ -56,14 +62,17 @@ class RapidOCREngine(OCREngine):
         return "pip install rapidocr-onnxruntime"
 
     def _get_ocr(self):
-        if RapidOCREngine._instance is None:
-            from rapidocr_onnxruntime import RapidOCR
-            RapidOCREngine._instance = RapidOCR()
-        return RapidOCREngine._instance
+        with RapidOCREngine._lock:
+            if RapidOCREngine._instance is None:
+                from rapidocr_onnxruntime import RapidOCR
+                RapidOCREngine._instance = RapidOCR()
+            return RapidOCREngine._instance
 
     def ocr_tokens(self, image: np.ndarray, use_cls: bool = True) -> list[OCRToken]:
         ocr = self._get_ocr()
-        result, _elapse = ocr(image, use_det=True, use_cls=use_cls, use_rec=True)
+        with RapidOCREngine._lock:
+            result, _elapse = ocr(image, use_det=True, use_cls=use_cls,
+                                  use_rec=True)
         tokens: list[OCRToken] = []
         if not result:
             return tokens
